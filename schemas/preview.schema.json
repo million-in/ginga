@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": [
+    "ok",
+    "format",
+    "sourceWidth",
+    "sourceHeight",
+    "previewWidth",
+    "previewHeight",
+    "previewPngBase64"
+  ],
+  "properties": {
+    "ok": { "const": true },
+    "format": { "enum": ["png", "jpeg"] },
+    "sourceWidth": { "type": "number" },
+    "sourceHeight": { "type": "number" },
+    "previewWidth": { "type": "number" },
+    "previewHeight": { "type": "number" },
+    "previewPngBase64": { "type": "string" }
+  }
+}

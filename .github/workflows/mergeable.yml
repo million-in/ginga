@@ -1,0 +1,40 @@
+name: mergeable
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Install Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run quality gate
+        run: bash scripts/ci/quality-gate.sh
+
+      - name: Decide mergeability
+        run: bun scripts/ci/release-gate.mjs mergeable
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mergeable-reports
+          path: .reports

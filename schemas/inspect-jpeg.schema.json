@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": [
+    "ok",
+    "format",
+    "width",
+    "height",
+    "precision",
+    "components",
+    "baseline",
+    "progressive",
+    "lossless",
+    "arithmeticCoding",
+    "quantizationTables",
+    "huffmanDcTables",
+    "huffmanAcTables",
+    "restartInterval",
+    "scanCount",
+    "jfif",
+    "adobe"
+  ],
+  "properties": {
+    "ok": { "const": true },
+    "format": { "const": "jpeg" },
+    "width": { "type": "number" },
+    "height": { "type": "number" },
+    "precision": { "type": "number" },
+    "components": { "type": "number" },
+    "baseline": { "type": "boolean" },
+    "progressive": { "type": "boolean" },
+    "lossless": { "type": "boolean" },
+    "arithmeticCoding": { "type": "boolean" },
+    "quantizationTables": { "type": "number" },
+    "huffmanDcTables": { "type": "number" },
+    "huffmanAcTables": { "type": "number" },
+    "restartInterval": { "type": "number" },
+    "scanCount": { "type": "number" },
+    "jfif": { "type": "boolean" },
+    "adobe": { "type": "boolean" }
+  }
+}

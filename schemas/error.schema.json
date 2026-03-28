@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "required": ["ok", "error"],
+  "properties": {
+    "ok": { "const": false },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "ginga",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ginga desktop shell for the Zig image pipeline.",
+  "packageManager": "bun@1.3.11",
+  "main": "electron/dist/main.js",
+  "scripts": {
+    "desktop:build": "bun scripts/desktop-check.mjs build",
+    "start": "bun run desktop:build && bunx electron .",
+    "dev": "bun run desktop:build && bunx electron .",
+    "preview": "bun scripts/electron-bridge.mjs preview",
+    "check": "bun scripts/desktop-check.mjs check"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "dependencies": {
+    "electron": ">=30.0.0 <40.0.0"
+  }
+}

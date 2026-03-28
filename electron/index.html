@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ginga</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="eyebrow">ginga desktop shell</p>
+        <h1>Preview an image through the Zig engine.</h1>
+        <p class="lead">
+          Load a local PNG, JPG, or JPEG path, send it to the engine, and inspect
+          the structured preview response here.
+        </p>
+      </section>
+
+      <section class="panel">
+        <label class="field">
+          <span>Image path</span>
+          <input id="imagePath" type="text" spellcheck="false" placeholder="/absolute/path/to/image.png" />
+        </label>
+
+        <div class="actions">
+          <button id="browseButton" type="button">Browse</button>
+          <button id="previewButton" type="button" class="primary">Preview</button>
+        </div>
+
+        <p id="status" class="status" aria-live="polite">Waiting for an image path.</p>
+
+        <section class="preview-grid">
+          <article class="preview-card">
+            <div class="preview-frame">
+              <img id="previewImage" class="preview-image" alt="ginga preview output" hidden />
+              <div id="previewPlaceholder" class="preview-placeholder">
+                Run a preview to render the PNG output here.
+              </div>
+            </div>
+          </article>
+
+          <article class="preview-card">
+            <h2 class="card-title">Response</h2>
+            <pre id="result" class="result" aria-live="polite">{}</pre>
+          </article>
+        </section>
+      </section>
+    </main>
+    <script src="./dist/renderer.js"></script>
+  </body>
+</html>

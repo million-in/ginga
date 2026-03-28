@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "required": ["ok", "engine"],
+  "properties": {
+    "ok": { "const": true },
+    "engine": {
+      "type": "object",
+      "required": ["decodeFormats", "encodeFormats", "previewMaxEdge", "spectralModes", "jpeg", "render"],
+      "properties": {
+        "decodeFormats": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string" }
+        },
+        "encodeFormats": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string" }
+        },
+        "previewMaxEdge": { "type": "number" },
+        "spectralModes": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string" }
+        },
+        "jpeg": {
+          "type": "object",
+          "required": ["baselineSequential", "progressive", "arithmetic", "lossless"],
+          "properties": {
+            "baselineSequential": { "type": "boolean" },
+            "progressive": { "type": "boolean" },
+            "arithmetic": { "type": "boolean" },
+            "lossless": { "type": "boolean" }
+          }
+        },
+        "render": {
+          "type": "object",
+          "required": ["windowedSinc", "panelSpread", "directSpectralRaster"],
+          "properties": {
+            "windowedSinc": { "type": "boolean" },
+            "panelSpread": { "type": "boolean" },
+            "directSpectralRaster": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

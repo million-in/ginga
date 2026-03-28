@@ -1,0 +1,28 @@
+{
+  "flags": [
+    {
+      "name": "baseline_jpeg_codec",
+      "owner": "engine",
+      "state": "enabled",
+      "description": "Controls release exposure for the baseline JPEG encode/decode path."
+    },
+    {
+      "name": "png_engine_v1",
+      "owner": "engine",
+      "state": "enabled",
+      "description": "Controls release exposure for the pure Zig PNG path."
+    },
+    {
+      "name": "native_spectral_render",
+      "owner": "engine",
+      "state": "enabled",
+      "description": "Controls release exposure for direct sampled-spectrum rendering."
+    },
+    {
+      "name": "desktop_shell_ts",
+      "owner": "desktop",
+      "state": "enabled",
+      "description": "Controls release exposure for the Bun/Electron TypeScript shell."
+    }
+  ]
+}

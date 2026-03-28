@@ -1,0 +1,224 @@
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --bg-soft: #0f1b2c;
+  --panel: rgba(10, 18, 32, 0.88);
+  --panel-border: rgba(131, 154, 176, 0.22);
+  --text: #e6edf6;
+  --muted: #9db0c5;
+  --accent: #89d6c2;
+  --accent-strong: #f4b860;
+  --danger: #ff8a8a;
+  --shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(137, 214, 194, 0.12), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(244, 184, 96, 0.1), transparent 24%),
+    linear-gradient(180deg, #08101c 0%, #0a1322 45%, #09101a 100%);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  padding: 40px;
+}
+
+.app-shell {
+  display: grid;
+  gap: 24px;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.hero,
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.hero {
+  padding: 28px 30px;
+  background: linear-gradient(180deg, rgba(15, 27, 44, 0.92), rgba(8, 16, 28, 0.9));
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 0.76rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  max-width: 16ch;
+}
+
+.lead {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.55;
+  max-width: 62ch;
+}
+
+.panel {
+  padding: 24px;
+  background: var(--panel);
+}
+
+.field {
+  display: grid;
+  gap: 10px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+input {
+  width: 100%;
+  border: 1px solid rgba(131, 154, 176, 0.25);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: rgba(4, 10, 20, 0.78);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+input:focus {
+  border-color: rgba(137, 214, 194, 0.7);
+  box-shadow: 0 0 0 3px rgba(137, 214, 194, 0.12);
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+button {
+  border: 1px solid rgba(131, 154, 176, 0.25);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: rgba(20, 31, 48, 0.9);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: rgba(137, 214, 194, 0.5);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.primary {
+  border-color: rgba(244, 184, 96, 0.32);
+  background: linear-gradient(180deg, rgba(244, 184, 96, 0.18), rgba(244, 184, 96, 0.08));
+}
+
+.status {
+  margin: 18px 0 10px;
+  color: var(--muted);
+}
+
+.result {
+  margin: 0;
+  min-height: 220px;
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(3, 8, 16, 0.88);
+  color: #dce7f2;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 18px;
+}
+
+.preview-card {
+  display: grid;
+  gap: 12px;
+}
+
+.card-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.preview-frame {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+  border: 1px solid rgba(131, 154, 176, 0.16);
+  border-radius: 16px;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.03) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.03) 75%),
+    rgba(3, 8, 16, 0.88);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+}
+
+.preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 520px;
+  image-rendering: pixelated;
+}
+
+.preview-placeholder {
+  max-width: 34ch;
+  padding: 20px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 18px;
+  }
+
+  .panel,
+  .hero {
+    padding: 20px;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .preview-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "versionSources": ["package.json", "build.zig.zon"],
+  "changelogPath": "CHANGELOG.md",
+  "releaseNotesPath": ".reports/release-notes.md",
+  "rolloutMetadataPath": ".reports/rollout-metadata.json",
+  "reportPath": ".reports/release-gate.json",
+  "riskyPathFlags": {
+    "src/ginga/jpeg.zig": "baseline_jpeg_codec",
+    "src/ginga/png.zig": "png_engine_v1",
+    "src/ginga/render.zig": "native_spectral_render",
+    "src/ginga/spectral.zig": "native_spectral_render",
+    "src/ginga/spectral_raster.zig": "native_spectral_render",
+    "electron/main.ts": "desktop_shell_ts",
+    "scripts/electron-bridge.mjs": "desktop_shell_ts"
+  },
+  "canaryBlockedPrefixes": [
+    "src/ginga/jpeg.zig",
+    "src/ginga/png.zig"
+  ]
+}
