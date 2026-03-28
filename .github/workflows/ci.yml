@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GINGA_BENCH_ITERATIONS: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Install Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Zig tests
+        run: zig build test
+
+      - name: Build ginga
+        run: zig build
+
+      - name: Run smoke tests
+        run: ./qa/smoke.sh
+
+      - name: Run regression tests
+        run: GINGA_BIN="$PWD/zig-out/bin/ginga" ./qa/regression.sh
+
+      - name: Run benchmarks
+        run: GINGA_BIN="$PWD/zig-out/bin/ginga" ./qa/bench.sh
+
+      - name: Check desktop sources
+        run: bun run check
+
+      - name: Build desktop shell
+        run: bun run desktop:build
+
+      - name: Run full quality gate
+        run: bash scripts/ci/quality-gate.sh
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports
+          path: .reports

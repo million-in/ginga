@@ -11,7 +11,7 @@
   ],
   "properties": {
     "ok": { "const": true },
-    "format": { "enum": ["png", "jpeg"] },
+    "format": { "enum": ["png", "jpeg", "spd"] },
     "sourceWidth": { "type": "number" },
     "sourceHeight": { "type": "number" },
     "previewWidth": { "type": "number" },

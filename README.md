@@ -1,20 +1,108 @@
 # ginga
 
-`ginga` is a pure-Zig image pipeline project with two fronts:
+`ginga` is a local-first image conversion and preview tool built around a pure Zig engine. It ships as:
 
-- a Zig engine and CLI for decode, conversion, preview rendering, and core image math
-- an Electron shell, authored in TypeScript, that wraps the local Zig binary for interactive preview work
+- a CLI for inspect, convert, preview, and capability discovery
+- a minimal Electron shell that wraps the same local binary instead of reimplementing image logic in JavaScript
 
-The current v1 state is intentionally narrow:
+## Software Review
 
-- PNG decode and encode work end to end
-- preview rendering works end to end
-- rendering now includes a spectral-aware approximate reprojection path in Zig
-- the engine now also exposes a direct spectral raster primitive for native spectrum -> cone -> XYZ -> RGB projection
-- JPEG/JPG baseline decode and encode work end to end
-- `ginga capabilities` emits a machine-readable engine feature manifest
-- CI now includes quality and release gates for mergeable / releasable decisions
+`ginga` is opinionated in a way most image tools are not. The project is not trying to be a thin wrapper around system codecs, browser APIs, or third-party rendering engines. The core image path is owned in-repo, in Zig, with the desktop UI acting as a front-end to that engine rather than a second implementation.
 
-Engine documentation lives in [docs/zig-engine.md](docs/zig-engine.md).
-Math and implementation scope are tracked in [docs/math-spec.md](docs/math-spec.md).
-Current implementation status is tracked in [progress.md](progress.md).
+That gives the project a few distinctive properties:
+
+- A single engine boundary for both CLI and desktop usage.
+- Native support for an external spectral raster format, `.spd`, alongside `png`, `jpg`, and `jpeg`.
+- A preview path that can stay in raster mode for speed or switch into spectral reconstruction modes when requested.
+- Machine-readable CLI responses that are usable from scripts, tests, and the desktop shell.
+- A build flow that installs `ginga` as a normal shell command instead of trapping usage inside the repo directory.
+
+The current release is strongest where the project already owns the full path end to end:
+
+- PNG decode and encode
+- baseline JPEG/JPG decode and encode
+- `.spd` ingest and export
+- preview rendering
+- folder-based desktop browsing and batch conversion
+
+The current limits are deliberate rather than hidden:
+
+- JPEG support is still baseline sequential, not full-format JPEG coverage.
+- PNG output currently prioritizes correctness and ownership over compression ratio.
+- Spectral-native external ingest exists through `.spd`; conventional PNG and JPEG inputs remain raster-first.
+
+## Installation
+
+### Requirements
+
+- Zig `0.15.x`
+- Bun `1.3+`
+- macOS, Linux, or another environment where Bun + Electron and Zig toolchains are available
+
+### Build And Install
+
+From the repository root:
+
+```bash
+bun install
+bun run build
+```
+
+`bun run build` builds the Zig engine, builds the Electron shell, and installs `ginga` into a shell-visible location. By default the install script prefers:
+
+1. `/opt/homebrew/bin`
+2. `/usr/local/bin`
+3. `~/.local/bin`
+
+If the chosen directory is not already on `PATH`, the installer will add it to `~/.zshrc`.
+
+To force a specific install target:
+
+```bash
+GINGA_INSTALL_DIR="$HOME/.local/bin" bun run build
+```
+
+### Run
+
+Desktop shell:
+
+```bash
+bun run dev
+```
+
+CLI:
+
+```bash
+ginga --help
+ginga inspect /absolute/path/to/input.png
+ginga convert /absolute/path/to/input.png /tmp/output.spd
+printf '{"command":"preview","imagePath":"/absolute/path/to/input.png"}\n' | ginga preview
+```
+
+## Unique APIs
+
+The main public interfaces are intentionally small:
+
+- `ginga inspect <file>`
+  Returns machine-readable metadata for `png`, `jpg`, `jpeg`, and `.spd`.
+- `ginga convert <input> <output>`
+  Converts across the supported formats, including raster-to-spectral `.spd`.
+- `ginga preview`
+  Accepts a JSON request on stdin and returns a JSON payload with preview metadata and PNG bytes encoded as base64.
+- `ginga capabilities`
+  Exposes a machine-readable feature manifest so tooling can detect supported formats and render modes at runtime.
+
+The Electron app uses those same APIs through the local binary rather than introducing a second image-processing layer.
+
+## Documentation
+
+Technical details live under `docs/`:
+
+- [CLI and build usage](docs/cli.md)
+- [Zig engine architecture](docs/zig-engine.md)
+- [Math and reconstruction model](docs/math-spec.md)
+- [SPD file format](docs/spd-format.md)
+- [Implementation status](progress.md)
+
+Contribution guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).
+

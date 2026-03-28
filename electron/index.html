@@ -12,43 +12,93 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="hero">
-        <p class="eyebrow">ginga desktop shell</p>
-        <h1>Preview an image through the Zig engine.</h1>
-        <p class="lead">
-          Load a local PNG, JPG, or JPEG path, send it to the engine, and inspect
-          the structured preview response here.
-        </p>
-      </section>
+      <header class="app-header">
+        <img class="app-logo" src="./logo/AppIcon.svg" alt="ginga logo" />
+        <div class="header-copy">
+          <p class="eyebrow">ginga</p>
+          <h1>ginga</h1>
+          <p class="lead">Local preview, inspect, and convert on top of the Zig engine.</p>
+        </div>
+      </header>
 
-      <section class="panel">
-        <label class="field">
-          <span>Image path</span>
-          <input id="imagePath" type="text" spellcheck="false" placeholder="/absolute/path/to/image.png" />
-        </label>
-
-        <div class="actions">
-          <button id="browseButton" type="button">Browse</button>
-          <button id="previewButton" type="button" class="primary">Preview</button>
+      <section class="preview-panel">
+        <div class="preview-meta">
+          <p id="gallerySummary" class="status">No folder loaded.</p>
+          <p id="status" class="status" aria-live="polite">Open an image or folder to render immediately.</p>
         </div>
 
-        <p id="status" class="status" aria-live="polite">Waiting for an image path.</p>
+        <div id="previewFrame" class="preview-frame">
+          <button id="previousImageButton" type="button" class="nav-button nav-button-left" aria-label="Previous image">
+            Previous
+          </button>
+          <img id="previewImage" class="preview-image" alt="ginga preview output" hidden />
+          <div id="previewPlaceholder" class="preview-placeholder">
+            Load a file or a folder. The first image renders as soon as it is selected.
+          </div>
+          <button id="nextImageButton" type="button" class="nav-button nav-button-right" aria-label="Next image">
+            Next
+          </button>
+        </div>
+      </section>
 
-        <section class="preview-grid">
-          <article class="preview-card">
-            <div class="preview-frame">
-              <img id="previewImage" class="preview-image" alt="ginga preview output" hidden />
-              <div id="previewPlaceholder" class="preview-placeholder">
-                Run a preview to render the PNG output here.
-              </div>
-            </div>
-          </article>
+      <section class="control-panel">
+        <div class="control-grid">
+          <label class="field field-wide">
+            <span>Current file</span>
+            <input id="imagePath" type="text" spellcheck="false" placeholder="/absolute/path/to/image.png" />
+          </label>
 
-          <article class="preview-card">
-            <h2 class="card-title">Response</h2>
-            <pre id="result" class="result" aria-live="polite">{}</pre>
-          </article>
-        </section>
+          <div class="actions">
+            <button id="browseButton" type="button">Open Image</button>
+            <button id="browseFolderButton" type="button">Open Folder</button>
+            <button id="inspectButton" type="button">Inspect</button>
+          </div>
+
+          <label class="field field-wide">
+            <span>Output file</span>
+            <input id="outputPath" type="text" spellcheck="false" placeholder="/absolute/path/to/output.spd" />
+          </label>
+
+          <label class="field field-format">
+            <span>Format</span>
+            <select id="outputFormat">
+              <option value="png">png</option>
+              <option value="jpg">jpg</option>
+              <option value="jpeg">jpeg</option>
+              <option value="spd">spd</option>
+            </select>
+          </label>
+
+          <label class="field field-quality">
+            <span>JPEG quality</span>
+            <input id="qualityInput" type="number" min="1" max="100" step="1" value="90" />
+          </label>
+
+          <div class="actions">
+            <button id="browseOutputButton" type="button">Choose Output</button>
+            <button id="convertButton" type="button" class="primary">Convert</button>
+          </div>
+        </div>
+
+        <div class="batch-row">
+          <div class="actions">
+            <button id="browseBatchButton" type="button">Choose Batch Images</button>
+            <button id="batchConvertButton" type="button" class="primary">Batch Convert</button>
+          </div>
+          <p id="batchSummary" class="status">No batch selection.</p>
+        </div>
+      </section>
+
+      <section class="meta-grid">
+        <article class="meta-card">
+          <h2 class="card-title">Details</h2>
+          <dl id="details" class="details" aria-live="polite"></dl>
+        </article>
+
+        <article class="meta-card">
+          <h2 class="card-title">Response</h2>
+          <pre id="result" class="result" aria-live="polite">{}</pre>
+        </article>
       </section>
     </main>
     <script src="./dist/renderer.js"></script>

@@ -47,6 +47,7 @@ prepare_sample_images "$workdir"
 
 png_path="$workdir/sample.png"
 jpg_path="$workdir/sample.jpg"
+spd_path="$workdir/sample.spd"
 request_path="$workdir/preview-request.json"
 printf '{"command":"preview","imagePath":"%s"}\n' "$png_path" > "$request_path"
 
@@ -60,10 +61,27 @@ printf '%s\n' "$png_inspect" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/s
 jpg_inspect="$("$GINGA_BIN" inspect "$jpg_path")"
 printf '%s\n' "$jpg_inspect" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/inspect-jpeg.schema.json"
 
+spd_inspect="$("$GINGA_BIN" inspect "$spd_path")"
+printf '%s\n' "$spd_inspect" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/inspect-spd.schema.json"
+
 preview_output_path="$workdir/preview-first.json"
 "$GINGA_BIN" preview < "$request_path" > "$preview_output_path"
 preview_json="$(cat "$preview_output_path")"
 printf '%s\n' "$preview_json" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/preview.schema.json"
+
+spd_preview_path="$workdir/preview-spd.json"
+printf '{"command":"preview","imagePath":"%s"}\n' "$spd_path" | "$GINGA_BIN" preview > "$spd_preview_path"
+printf '%s\n' "$(cat "$spd_preview_path")" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/preview.schema.json"
+
+"$GINGA_BIN" convert "$spd_path" "$workdir/from-spd.png" >/dev/null
+spd_convert_inspect="$("$GINGA_BIN" inspect "$workdir/from-spd.png")"
+printf '%s\n' "$spd_convert_inspect" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/inspect-png.schema.json"
+
+"$GINGA_BIN" convert "$png_path" "$workdir/from-png.spd" >/dev/null
+png_to_spd_inspect="$("$GINGA_BIN" inspect "$workdir/from-png.spd")"
+printf '%s\n' "$png_to_spd_inspect" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/inspect-spd.schema.json"
+printf '{"command":"preview","imagePath":"%s"}\n' "$workdir/from-png.spd" | "$GINGA_BIN" preview > "$workdir/preview-from-png-spd.json"
+printf '%s\n' "$(cat "$workdir/preview-from-png-spd.json")" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/preview.schema.json"
 
 capabilities_json="$("$GINGA_BIN" capabilities)"
 printf '%s\n' "$capabilities_json" | bun "$ROOT/scripts/ci/assert-schema.mjs" "$ROOT/schemas/capabilities.schema.json"
@@ -136,13 +154,13 @@ for candidate in "$workdir"/concurrency/preview-*.json; do
     fi
 done
 
-security_hits="$(rg -n '(eval\(|Function\(|child_process\.exec\(|shell:\s*true|curl .*\|\s*(sh|bash)|wget .*\|\s*(sh|bash))' "$ROOT/src" "$ROOT/electron" "$ROOT/scripts" | grep -v "$ROOT/scripts/ci/quality-gate.sh" || true)"
+security_hits="$(grep -RInE '(eval\(|Function\(|child_process\.exec\(|shell:[[:space:]]*true|curl .*\|[[:space:]]*(sh|bash)|wget .*\|[[:space:]]*(sh|bash))' "$ROOT/src" "$ROOT/electron" "$ROOT/scripts" | grep -v "$ROOT/scripts/ci/quality-gate.sh" || true)"
 if [ -n "$security_hits" ]; then
     printf '%s\n' "$security_hits"
     echo "security scan found forbidden execution patterns" >&2
     exit 1
 fi
-secret_hits="$(rg -n '(BEGIN RSA PRIVATE KEY|BEGIN OPENSSH PRIVATE KEY|OPENAI_API_KEY|AWS_SECRET_ACCESS_KEY)' "$ROOT" | grep -v "$ROOT/scripts/ci/quality-gate.sh" || true)"
+secret_hits="$(grep -RInE '(BEGIN RSA PRIVATE KEY|BEGIN OPENSSH PRIVATE KEY|OPENAI_API_KEY|AWS_SECRET_ACCESS_KEY)' "$ROOT/src" "$ROOT/electron" "$ROOT/scripts" "$ROOT/release" "$ROOT/.github" | grep -v "$ROOT/scripts/ci/quality-gate.sh" || true)"
 if [ -n "$secret_hits" ]; then
     printf '%s\n' "$secret_hits"
     echo "security scan found secret-like material" >&2

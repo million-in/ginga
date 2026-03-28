@@ -1,9 +1,14 @@
 const std = @import("std");
+const endian = @import("bits.zig");
 const raster = @import("raster.zig");
 
 const signature = [_]u8{ 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
 pub const PngError = anyerror;
+pub const ImageHeader = struct {
+    width: usize,
+    height: usize,
+};
 
 const ColorType = enum(u8) {
     grayscale = 0,
@@ -148,15 +153,15 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) PngError!raster.R
             switch (parsed_header.color_type) {
                 .grayscale => {
                     if (chunk_data.len != 2) return error.InvalidChunk;
-                    transparency = .{ .grayscale = readU16(chunk_data[0..2]) };
+                    transparency = .{ .grayscale = endian.readU16be(chunk_data[0..2]) };
                 },
                 .rgb => {
                     if (chunk_data.len != 6) return error.InvalidChunk;
                     transparency = .{
                         .rgb = .{
-                            .r = readU16(chunk_data[0..2]),
-                            .g = readU16(chunk_data[2..4]),
-                            .b = readU16(chunk_data[4..6]),
+                            .r = endian.readU16be(chunk_data[0..2]),
+                            .g = endian.readU16be(chunk_data[2..4]),
+                            .b = endian.readU16be(chunk_data[4..6]),
                         },
                     };
                 },
@@ -197,6 +202,36 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) PngError!raster.R
 
     try unfilterInto(&image, inflated, parsed_header, palette_storage, transparency);
     return image;
+}
+
+pub fn readHeader(bytes: []const u8) PngError!ImageHeader {
+    if (bytes.len < signature.len + 4 + 4 + 13 + 4) return error.MissingIhdr;
+    if (!std.mem.eql(u8, bytes[0..signature.len], &signature)) return error.InvalidSignature;
+
+    const chunk_length = readU32(bytes[signature.len .. signature.len + 4]);
+    const chunk_type = bytes[signature.len + 4 .. signature.len + 8];
+    if (chunk_length != 13 or !std.mem.eql(u8, chunk_type, "IHDR")) return error.MissingIhdr;
+
+    const chunk_data = bytes[signature.len + 8 .. signature.len + 21];
+    const chunk_crc = readU32(bytes[signature.len + 21 .. signature.len + 25]);
+    if (chunk_crc != crc32Chunk(chunk_type, chunk_data)) return error.InvalidChunk;
+
+    const header = Header{
+        .width = readU32(chunk_data[0..4]),
+        .height = readU32(chunk_data[4..8]),
+        .bit_depth = chunk_data[8],
+        .color_type = std.meta.intToEnum(ColorType, chunk_data[9]) catch return error.UnsupportedColorType,
+    };
+    try header.validateBitDepth();
+    if (chunk_data[10] != 0) return error.UnsupportedCompression;
+    if (chunk_data[11] != 0) return error.UnsupportedFilter;
+    if (chunk_data[12] != 0) return error.UnsupportedInterlace;
+    if (header.width == 0 or header.height == 0) return error.InvalidDimensions;
+
+    return .{
+        .width = header.width,
+        .height = header.height,
+    };
 }
 
 pub fn encode(allocator: std.mem.Allocator, image: raster.Raster) PngError![]u8 {
@@ -306,9 +341,9 @@ fn decodeRowInto(
                     pixel.* = .{ .r = r, .g = g, .b = b, .a = alpha };
                 } else {
                     const base = x * 6;
-                    const r16 = readU16(recon_row[base .. base + 2]);
-                    const g16 = readU16(recon_row[base + 2 .. base + 4]);
-                    const b16 = readU16(recon_row[base + 4 .. base + 6]);
+                    const r16 = endian.readU16be(recon_row[base .. base + 2]);
+                    const g16 = endian.readU16be(recon_row[base + 2 .. base + 4]);
+                    const b16 = endian.readU16be(recon_row[base + 4 .. base + 6]);
                     const alpha: u8 = switch (transparency) {
                         .rgb => |transparent_rgb| if (transparent_rgb.r == r16 and transparent_rgb.g == g16 and transparent_rgb.b == b16) 0 else 255,
                         else => 255,
@@ -338,8 +373,8 @@ fn decodeRowInto(
                     pixel.* = .{ .r = gray, .g = gray, .b = gray, .a = recon_row[base + 1] };
                 } else {
                     const base = x * 4;
-                    const gray = sample16ToByte(readU16(recon_row[base .. base + 2]));
-                    const alpha = sample16ToByte(readU16(recon_row[base + 2 .. base + 4]));
+                    const gray = sample16ToByte(endian.readU16be(recon_row[base .. base + 2]));
+                    const alpha = sample16ToByte(endian.readU16be(recon_row[base + 2 .. base + 4]));
                     pixel.* = .{ .r = gray, .g = gray, .b = gray, .a = alpha };
                 }
             }
@@ -357,10 +392,10 @@ fn decodeRowInto(
                 } else {
                     const base = x * 8;
                     pixel.* = .{
-                        .r = sample16ToByte(readU16(recon_row[base .. base + 2])),
-                        .g = sample16ToByte(readU16(recon_row[base + 2 .. base + 4])),
-                        .b = sample16ToByte(readU16(recon_row[base + 4 .. base + 6])),
-                        .a = sample16ToByte(readU16(recon_row[base + 6 .. base + 8])),
+                        .r = sample16ToByte(endian.readU16be(recon_row[base .. base + 2])),
+                        .g = sample16ToByte(endian.readU16be(recon_row[base + 2 .. base + 4])),
+                        .b = sample16ToByte(endian.readU16be(recon_row[base + 4 .. base + 6])),
+                        .a = sample16ToByte(endian.readU16be(recon_row[base + 6 .. base + 8])),
                     };
                 }
             }
@@ -380,7 +415,7 @@ fn readSample(row: []const u8, bit_depth: u8, sample_index: usize) u16 {
             break :blk @as(u16, (byte >> shift) & mask);
         },
         8 => row[sample_index],
-        16 => readU16(row[sample_index * 2 .. sample_index * 2 + 2]),
+        16 => endian.readU16be(row[sample_index * 2 .. sample_index * 2 + 2]),
         else => unreachable,
     };
 }
@@ -414,13 +449,13 @@ fn encodeScanlines(allocator: std.mem.Allocator, image: raster.Raster) PngError!
     defer allocator.free(previous);
     @memset(previous, 0);
 
-    var candidates = [_][]u8{
-        try allocator.alloc(u8, row_bytes),
-        try allocator.alloc(u8, row_bytes),
-        try allocator.alloc(u8, row_bytes),
-        try allocator.alloc(u8, row_bytes),
-        try allocator.alloc(u8, row_bytes),
-    };
+    var candidates: [5][]u8 = undefined;
+    var allocated_candidates: usize = 0;
+    errdefer for (candidates[0..allocated_candidates]) |candidate| allocator.free(candidate);
+    for (&candidates) |*candidate| {
+        candidate.* = try allocator.alloc(u8, row_bytes);
+        allocated_candidates += 1;
+    }
     defer for (candidates) |candidate| allocator.free(candidate);
 
     for (0..image.height_value) |y| {
@@ -545,10 +580,6 @@ fn encodeStoredZlib(allocator: std.mem.Allocator, payload: []const u8) PngError!
     return try output.toOwnedSlice(allocator);
 }
 
-fn readU16(bytes: []const u8) u16 {
-    return std.mem.readInt(u16, bytes[0..2], .big);
-}
-
 fn readU32(bytes: []const u8) u32 {
     return std.mem.readInt(u32, bytes[0..4], .big);
 }
@@ -574,6 +605,7 @@ fn paeth(left: u8, up: u8, up_left: u8) u8 {
     return up_left;
 }
 
+// Only used from test blocks in this module.
 fn buildTestPng(
     allocator: std.mem.Allocator,
     header: Header,
@@ -692,4 +724,98 @@ test "png decoder supports indexed images with transparency" {
 
     try std.testing.expectEqual(@as(u8, 255), decoded.getPixel(0, 0).r);
     try std.testing.expectEqual(@as(u8, 64), decoded.getPixel(1, 0).a);
+}
+
+test "png readHeader extracts dimensions from IHDR" {
+    const allocator = std.testing.allocator;
+    var image = try raster.Raster.init(allocator, 3, 2);
+    defer image.deinit();
+
+    image.setPixel(0, 0, .{ .r = 10, .g = 20, .b = 30, .a = 255 });
+    image.setPixel(1, 0, .{ .r = 40, .g = 50, .b = 60, .a = 255 });
+    image.setPixel(2, 0, .{ .r = 70, .g = 80, .b = 90, .a = 255 });
+    image.setPixel(0, 1, .{ .r = 100, .g = 110, .b = 120, .a = 255 });
+    image.setPixel(1, 1, .{ .r = 130, .g = 140, .b = 150, .a = 255 });
+    image.setPixel(2, 1, .{ .r = 160, .g = 170, .b = 180, .a = 255 });
+
+    const encoded = try encode(allocator, image);
+    defer allocator.free(encoded);
+
+    const header = try readHeader(encoded);
+    try std.testing.expectEqual(@as(usize, 3), header.width);
+    try std.testing.expectEqual(@as(usize, 2), header.height);
+}
+
+test "png decoder rejects corrupt chunk crc" {
+    const allocator = std.testing.allocator;
+    const header = Header{
+        .width = 1,
+        .height = 1,
+        .bit_depth = 8,
+        .color_type = .grayscale,
+    };
+    const png_bytes = try buildTestPng(allocator, header, &.{ 0, 0x7f }, null, null);
+    defer allocator.free(png_bytes);
+
+    png_bytes[29] ^= 0x01;
+    try std.testing.expectError(error.InvalidChunk, decode(allocator, png_bytes));
+}
+
+test "png decoder rejects truncated streams" {
+    const allocator = std.testing.allocator;
+    const header = Header{
+        .width = 1,
+        .height = 1,
+        .bit_depth = 8,
+        .color_type = .grayscale,
+    };
+    const png_bytes = try buildTestPng(allocator, header, &.{ 0, 0x7f }, null, null);
+    defer allocator.free(png_bytes);
+
+    const truncated_result = decode(allocator, png_bytes[0..40]);
+    if (truncated_result) |image| {
+        var decoded = image;
+        decoded.deinit();
+        return error.TestExpectedError;
+    } else |err| switch (err) {
+        error.InvalidChunk, error.MissingIdat, error.CorruptStream => {},
+        else => return err,
+    }
+}
+
+test "png readHeader rejects zero-dimension ihdr" {
+    const allocator = std.testing.allocator;
+    const header = Header{
+        .width = 0,
+        .height = 1,
+        .bit_depth = 8,
+        .color_type = .grayscale,
+    };
+    const png_bytes = try buildTestPng(allocator, header, &.{ 0, 0x7f }, null, null);
+    defer allocator.free(png_bytes);
+
+    try std.testing.expectError(error.InvalidDimensions, readHeader(png_bytes));
+}
+
+test "png decoder rejects indexed transparency beyond the palette size" {
+    const allocator = std.testing.allocator;
+    const header = Header{
+        .width = 1,
+        .height = 1,
+        .bit_depth = 8,
+        .color_type = .indexed,
+    };
+    const palette = [_]raster.Pixel{
+        .{ .r = 255, .g = 0, .b = 0, .a = 255 },
+    };
+    const png_bytes = try buildTestPng(
+        allocator,
+        header,
+        &.{ 0, 0x00 },
+        &palette,
+        &.{ 255, 64 },
+    );
+    defer allocator.free(png_bytes);
+
+    try std.testing.expectError(error.InvalidChunk, decode(allocator, png_bytes));
 }

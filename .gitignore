@@ -1,26 +1,34 @@
+# Zig build outputs
 .zig-cache/
 zig-out/
+
+# JavaScript / desktop build outputs
 node_modules/
+electron/dist/
+dist/
+.bin/
+
+# Temporary files and generated workdirs
 .tmp/
-electron/dist/
-coverage/
-reports/
-artifacts/
-benchmarks/
 tmp/
-*.log
-*.tmp
-.DS_Store
-electron/dist/
 .artifacts/
 .benchmarks/
 .ci/
 .measurements/
 .reports/
+artifacts/
+benchmarks/
 coverage/
-dist/
-tmp/
+reports/
+
+# Local review / tracking files
+progress.md
+maintainer_reviews/
+maintainer-reviews/
+
+# Logs and editor junk
+*.log
+*.tmp
 *.swp
 *.swo
 .DS_Store
-progress.md

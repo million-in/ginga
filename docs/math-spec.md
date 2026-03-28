@@ -21,9 +21,9 @@ The intended flow is:
 Implemented now:
 
 - sampled spectra over `400nm..700nm` in `10nm` steps
-- approximate RGB -> spectrum lifting
-- direct spectrum -> cone response integration
-- cone response -> XYZ mapping
+- RGB -> spectrum reconstruction with a daylight-weighted basis
+- direct spectrum -> XYZ integration
+- XYZ <-> cone response mapping
 - XYZ -> linear RGB reprojection
 - direct spectral raster storage and analysis
 - windowed-sinc reconstruction
@@ -33,14 +33,14 @@ Implemented now:
 
 ## Current Approximations
 
-The engine is not yet a full SPD-native ingest pipeline from file formats. The current spectral paths are:
+The current spectral paths are:
 
 - `approximate`
-  RGB input is lifted to a smooth basis spectrum before cone/XYZ reprojection.
+  RGB input is reconstructed into a sampled spectrum before XYZ/cone reprojection.
 - `native`
-  A `SpectralRaster` can carry sampled spectra directly through the render path.
+  A `SpectralRaster` or external `.spd` file can carry sampled spectra directly through the render path.
 
-That means the renderer can now operate on direct spectra in-core, but the file codecs still decode into raster RGB data first.
+The desktop preview request currently defaults to `none` for color stability and latency. Spectral modes remain available at the engine boundary. PNG and JPEG still decode into raster RGB first, while `.spd` enters as direct sampled spectra.
 
 ## Rendering Notes
 
@@ -69,7 +69,13 @@ Not implemented yet:
 - arithmetic JPEG
 - lossless JPEG
 - chroma-subsampling options on encode
-- direct spectral file formats
+
+SPD file ingest:
+
+- binary `.spd` container
+- validated dimensions, wavelength grid, and payload checksum
+- resampling into the engine working grid when the source sample grid differs
+- direct `.spd` export from native spectra and RGB-derived spectral reconstruction
 
 ## Maintainability Rules
 

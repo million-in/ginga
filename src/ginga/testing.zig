@@ -93,6 +93,7 @@ pub fn DenseRaster(comptime T: type) type {
             self.data[self.index(x, y)] = value;
         }
 
+        /// Pointer remains valid only for the lifetime of this `DenseRaster`.
         pub fn ptr(self: *Self, x: usize, y: usize) *T {
             return &self.data[self.index(x, y)];
         }
