@@ -4,6 +4,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: mergeable-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,13 +21,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Prepare reports directory
+        run: |
+          mkdir -p .reports
+          printf '{ "workflow": "mergeable", "ok": false }\n' > .reports/bootstrap.json
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.11
-
-      - uses: mlugg/setup-zig@v1
-        with:
-          version: 0.15.2
 
       - name: Install Bun dependencies
         run: bun install --frozen-lockfile
@@ -38,3 +42,4 @@ jobs:
         with:
           name: mergeable-reports
           path: .reports
+          if-no-files-found: ignore
