@@ -10,7 +10,14 @@ version="$1"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$os" in
-    linux|darwin) ;;
+    linux)
+        zig_os="linux"
+        archive_ext="tar.xz"
+        ;;
+    darwin)
+        zig_os="macos"
+        archive_ext="tar.xz"
+        ;;
     *)
         echo "unsupported OS for Zig install: $os" >&2
         exit 1
@@ -31,7 +38,7 @@ case "$arch" in
         ;;
 esac
 
-archive_name="zig-${os}-${arch}-${version}.tar.xz"
+archive_name="zig-${arch}-${zig_os}-${version}.${archive_ext}"
 download_url="https://ziglang.org/download/${version}/${archive_name}"
 temp_root="${RUNNER_TEMP:-$(mktemp -d)}"
 archive_path="$temp_root/$archive_name"
