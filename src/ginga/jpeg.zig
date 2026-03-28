@@ -1,4 +1,5 @@
 const std = @import("std");
+const endian = @import("bits.zig");
 const color = @import("color.zig");
 const dct = @import("dct.zig");
 const raster = @import("raster.zig");
@@ -44,20 +45,46 @@ const HuffmanEntry = struct {
     symbol: u8,
 };
 
+fn bitMask(bit_count: u8) u32 {
+    if (bit_count == 0) return 0;
+    return (@as(u32, 1) << @intCast(bit_count)) - 1;
+}
+
 const HuffmanTable = struct {
     present: bool = false,
     count: usize = 0,
-    entries: [256]HuffmanEntry = undefined,
+    entries: [256]HuffmanEntry = [_]HuffmanEntry{.{
+        .code = 0,
+        .len = 0,
+        .symbol = 0,
+    }} ** 256,
+    min_code: [17]i32 = [_]i32{-1} ** 17,
+    max_code: [17]i32 = [_]i32{-1} ** 17,
+    first_index: [17]usize = [_]usize{0} ** 17,
+    fast_symbol: [256]u8 = [_]u8{0} ** 256,
+    fast_len: [256]u8 = [_]u8{0} ** 256,
 
     fn decode(self: @This(), reader: *BitReader) JpegError!u8 {
         if (!self.present) return error.MissingJpegHuffmanTable;
 
-        var code: u16 = 0;
+        if (reader.bits_available >= 8 or try reader.tryEnsureBits(8)) {
+            const fast_prefix: usize = @intCast(reader.peekBitsNoFill(8));
+            const fast_len = self.fast_len[fast_prefix];
+            if (fast_len != 0) {
+                reader.dropBits(fast_len);
+                return self.fast_symbol[fast_prefix];
+            }
+        }
+
         var len: u8 = 1;
         while (len <= 16) : (len += 1) {
-            code = (code << 1) | try reader.readBit();
-            for (self.entries[0..self.count]) |entry| {
-                if (entry.len == len and entry.code == code) return entry.symbol;
+            if (reader.bits_available < len and !(try reader.tryEnsureBits(len))) break;
+            const code = @as(i32, @intCast(reader.peekBitsNoFill(len)));
+            if (self.max_code[len] >= 0 and code >= self.min_code[len] and code <= self.max_code[len]) {
+                reader.dropBits(len);
+                const index = self.first_index[len] + @as(usize, @intCast(code - self.min_code[len]));
+                if (index >= self.count) return error.InvalidJpegHuffmanCode;
+                return self.entries[index].symbol;
             }
         }
 
@@ -183,37 +210,64 @@ const EncoderHuffmanTable = struct {
     }
 };
 
+const FrameHeaderComponentSpec = struct {
+    id: u8,
+    sampling: u8,
+    quantization_table: u8,
+};
+
+const ScanComponentSpec = struct {
+    id: u8,
+    table_selectors: u8,
+};
+
+const color_frame_components = [_]FrameHeaderComponentSpec{
+    .{ .id = 0x01, .sampling = 0x11, .quantization_table = 0x00 },
+    .{ .id = 0x02, .sampling = 0x11, .quantization_table = 0x01 },
+    .{ .id = 0x03, .sampling = 0x11, .quantization_table = 0x01 },
+};
+
+const color_scan_components = [_]ScanComponentSpec{
+    .{ .id = 0x01, .table_selectors = 0x00 },
+    .{ .id = 0x02, .table_selectors = 0x11 },
+    .{ .id = 0x03, .table_selectors = 0x11 },
+};
+
 const BitWriter = struct {
     bytes: *ByteList,
-    current_byte: u8 = 0,
-    bits_filled: u4 = 0,
+    bit_buffer: u32 = 0,
+    bits_filled: u8 = 0,
 
     fn writeBits(self: *BitWriter, bits: u16, bit_count: u8) JpegError!void {
         if (bit_count == 0) return;
-        var remaining = bit_count;
-        while (remaining > 0) : (remaining -= 1) {
-            const shift: u4 = @intCast(remaining - 1);
-            const bit: u8 = @intCast((bits >> shift) & 1);
-            self.current_byte = (self.current_byte << 1) | bit;
-            self.bits_filled += 1;
-            if (self.bits_filled == 8) try self.flushByte();
+        self.bit_buffer = (self.bit_buffer << @intCast(bit_count)) | (@as(u32, bits) & bitMask(bit_count));
+        self.bits_filled += bit_count;
+
+        while (self.bits_filled >= 8) {
+            const shift: u5 = @intCast(self.bits_filled - 8);
+            const byte: u8 = @intCast((self.bit_buffer >> shift) & 0xFF);
+            try self.emitByte(byte);
+            self.bits_filled -= 8;
+            if (self.bits_filled == 0) {
+                self.bit_buffer = 0;
+            } else {
+                self.bit_buffer &= bitMask(self.bits_filled);
+            }
         }
     }
 
     fn flush(self: *BitWriter) JpegError!void {
         if (self.bits_filled == 0) return;
-        const pad_bits: u4 = @intCast(8 - self.bits_filled);
-        const shift: u3 = @intCast(pad_bits);
-        const pad_mask: u8 = if (pad_bits == 0) 0 else (@as(u8, 1) << shift) - 1;
-        self.current_byte = (self.current_byte << shift) | pad_mask;
-        try self.flushByte();
+        const pad_bits: u8 = 8 - self.bits_filled;
+        const byte: u8 = @intCast((self.bit_buffer << @intCast(pad_bits)) | bitMask(pad_bits));
+        try self.emitByte(byte);
+        self.bit_buffer = 0;
+        self.bits_filled = 0;
     }
 
-    fn flushByte(self: *BitWriter) JpegError!void {
-        try self.bytes.append(self.current_byte);
-        if (self.current_byte == 0xFF) try self.bytes.append(0x00);
-        self.current_byte = 0;
-        self.bits_filled = 0;
+    fn emitByte(self: *BitWriter, byte: u8) JpegError!void {
+        try self.bytes.append(byte);
+        if (byte == 0xFF) try self.bytes.append(0x00);
     }
 };
 
@@ -242,12 +296,12 @@ pub fn encode(allocator: std.mem.Allocator, image: raster.Raster, quality: u8) J
     try writeApp0Jfif(&bytes);
     try writeQuantizationTableSegment(&bytes, 0, &luminance_quant);
     try writeQuantizationTableSegment(&bytes, 1, &chrominance_quant);
-    try writeBaselineFrameHeader(&bytes, image.width(), image.height());
+    try writeBaselineFrameHeader(&bytes, image.width(), image.height(), color_frame_components[0..]);
     try writeHuffmanTableSegment(&bytes, 0, 0, &bits_dc_luminance, &values_dc_luminance);
     try writeHuffmanTableSegment(&bytes, 1, 0, &bits_ac_luminance, &values_ac_luminance);
     try writeHuffmanTableSegment(&bytes, 0, 1, &bits_dc_chrominance, &values_dc_chrominance);
     try writeHuffmanTableSegment(&bytes, 1, 1, &bits_ac_chrominance, &values_ac_chrominance);
-    try writeStartOfScan(&bytes);
+    try writeStartOfScan(&bytes, color_scan_components[0..]);
     try encodeEntropyData(&bytes, image, &luminance_quant, &chrominance_quant, dc_luma, ac_luma, dc_chroma, ac_chroma);
     try appendMarker(&bytes, 0xD9);
 
@@ -308,6 +362,12 @@ fn writeApp0Jfif(bytes: *ByteList) JpegError!void {
     try bytes.appendSlice(&.{ 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00 });
 }
 
+fn writeRestartInterval(bytes: *ByteList, interval: u16) JpegError!void {
+    try appendMarker(bytes, 0xDD);
+    try appendU16(bytes, 4);
+    try appendU16(bytes, interval);
+}
+
 fn writeQuantizationTableSegment(bytes: *ByteList, table_id: u8, table: *const [64]u16) JpegError!void {
     try appendMarker(bytes, 0xDB);
     try appendU16(bytes, 67);
@@ -317,22 +377,39 @@ fn writeQuantizationTableSegment(bytes: *ByteList, table_id: u8, table: *const [
     }
 }
 
-fn writeBaselineFrameHeader(bytes: *ByteList, width: usize, height: usize) JpegError!void {
-    if (width == 0 or height == 0 or width > std.math.maxInt(u16) or height > std.math.maxInt(u16)) {
+fn writeFrameHeader(
+    bytes: *ByteList,
+    marker: u8,
+    width: usize,
+    height: usize,
+    components: []const FrameHeaderComponentSpec,
+) JpegError!void {
+    if (width == 0 or height == 0 or width > std.math.maxInt(u16) or height > std.math.maxInt(u16) or
+        components.len == 0 or components.len > 4)
+    {
         return error.InvalidDimensions;
     }
 
-    try appendMarker(bytes, 0xC0);
-    try appendU16(bytes, 17);
+    try appendMarker(bytes, marker);
+    try appendU16(bytes, @intCast(8 + components.len * 3));
     try bytes.append(8);
     try appendU16(bytes, @intCast(height));
     try appendU16(bytes, @intCast(width));
-    try bytes.append(3);
-    try bytes.appendSlice(&.{
-        0x01, 0x11, 0x00,
-        0x02, 0x11, 0x01,
-        0x03, 0x11, 0x01,
-    });
+    try bytes.append(@intCast(components.len));
+    for (components) |component| {
+        try bytes.append(component.id);
+        try bytes.append(component.sampling);
+        try bytes.append(component.quantization_table);
+    }
+}
+
+fn writeBaselineFrameHeader(
+    bytes: *ByteList,
+    width: usize,
+    height: usize,
+    components: []const FrameHeaderComponentSpec,
+) JpegError!void {
+    try writeFrameHeader(bytes, 0xC0, width, height, components);
 }
 
 fn writeHuffmanTableSegment(
@@ -349,16 +426,16 @@ fn writeHuffmanTableSegment(
     try bytes.appendSlice(symbols);
 }
 
-fn writeStartOfScan(bytes: *ByteList) JpegError!void {
+fn writeStartOfScan(bytes: *ByteList, components: []const ScanComponentSpec) JpegError!void {
+    if (components.len == 0 or components.len > 4) return error.InvalidDimensions;
     try appendMarker(bytes, 0xDA);
-    try appendU16(bytes, 12);
-    try bytes.append(3);
-    try bytes.appendSlice(&.{
-        0x01, 0x00,
-        0x02, 0x11,
-        0x03, 0x11,
-        0x00, 0x3F, 0x00,
-    });
+    try appendU16(bytes, @intCast(6 + components.len * 2));
+    try bytes.append(@intCast(components.len));
+    for (components) |component| {
+        try bytes.append(component.id);
+        try bytes.append(component.table_selectors);
+    }
+    try bytes.appendSlice(&.{ 0x00, 0x3F, 0x00 });
 }
 
 fn encodeEntropyData(
@@ -506,7 +583,7 @@ fn parse(bytes: []const u8) JpegError!ParseState {
         if (marker == 0x01 or (marker >= 0xD0 and marker <= 0xD7)) continue;
         if (offset + 2 > bytes.len) return error.InvalidJpegSegment;
 
-        const segment_length = readU16(bytes[offset .. offset + 2]);
+        const segment_length = endian.readU16be(bytes[offset .. offset + 2]);
         offset += 2;
         if (segment_length < 2) return error.InvalidJpegSegment;
         const payload_len: usize = segment_length - 2;
@@ -525,7 +602,7 @@ fn parse(bytes: []const u8) JpegError!ParseState {
             },
             0xDD => {
                 if (segment.len != 2) return error.InvalidJpegSegment;
-                state.metadata.restart_interval = readU16(segment[0..2]);
+                state.metadata.restart_interval = endian.readU16be(segment[0..2]);
             },
             0xE0 => {
                 if (segment.len >= 5 and std.mem.eql(u8, segment[0..5], "JFIF\x00")) {
@@ -681,6 +758,7 @@ fn decodeBlock(
         if (symbol == 0x00) break;
         if (symbol == 0xF0) {
             zigzag_index += 16;
+            if (zigzag_index >= 64) break;
             continue;
         }
 
@@ -743,8 +821,8 @@ fn parseFrameSegment(state: *ParseState, marker: u8, segment: []const u8) JpegEr
     if (component_count == 0 or component_count > state.frame_components.len) return error.UnsupportedJpegFeature;
 
     state.metadata.precision = segment[0];
-    state.metadata.height = readU16(segment[1..3]);
-    state.metadata.width = readU16(segment[3..5]);
+    state.metadata.height = endian.readU16be(segment[1..3]);
+    state.metadata.width = endian.readU16be(segment[3..5]);
     state.metadata.component_count = component_count;
     state.metadata.is_baseline = marker == 0xC0;
     state.metadata.is_progressive = marker == 0xC2;
@@ -795,7 +873,7 @@ fn parseQuantizationTables(state: *ParseState, segment: []const u8) JpegError!vo
             table.values[zigzag_index] = if (entry_bytes == 1)
                 segment[offset + index]
             else
-                readU16(segment[offset + index * 2 .. offset + index * 2 + 2]);
+                endian.readU16be(segment[offset + index * 2 .. offset + index * 2 + 2]);
         }
         offset += payload_len;
         state.quant_tables[table_id] = table;
@@ -872,45 +950,98 @@ fn buildHuffmanTable(counts: []const u8, symbols: []const u8) JpegError!HuffmanT
 
     for (0..16) |len_index| {
         const bit_length: u8 = @intCast(len_index + 1);
-        for (0..counts[len_index]) |_| {
+        const symbol_count = counts[len_index];
+        if (symbol_count != 0) {
+            table.first_index[bit_length] = symbol_index;
+            table.min_code[bit_length] = code;
+        }
+
+        for (0..symbol_count) |_| {
             if (symbol_index >= symbols.len) return error.InvalidJpegSegment;
+            if (table.count >= table.entries.len) return error.InvalidJpegSegment;
+            const symbol = symbols[symbol_index];
             table.entries[table.count] = .{
                 .code = code,
                 .len = bit_length,
-                .symbol = symbols[symbol_index],
+                .symbol = symbol,
             };
+            if (bit_length <= 8) {
+                const prefix = @as(usize, code) << @intCast(8 - bit_length);
+                const repeat = @as(usize, 1) << @intCast(8 - bit_length);
+                for (0..repeat) |fill_index| {
+                    table.fast_symbol[prefix + fill_index] = symbol;
+                    table.fast_len[prefix + fill_index] = bit_length;
+                }
+            }
             table.count += 1;
             symbol_index += 1;
             code += 1;
         }
+        if (symbol_count != 0) {
+            table.max_code[bit_length] = code - 1;
+        }
         code <<= 1;
     }
 
+    if (symbol_index != symbols.len) return error.InvalidJpegSegment;
     return table;
 }
 
 const BitReader = struct {
     data: []const u8,
     position: usize = 0,
-    current_byte: u8 = 0,
-    bits_left: u4 = 0,
+    bit_buffer: u32 = 0,
+    bits_available: u8 = 0,
 
     fn readBit(self: *BitReader) JpegError!u1 {
-        if (self.bits_left == 0) {
-            self.current_byte = try self.nextEntropyByte();
-            self.bits_left = 8;
-        }
-        self.bits_left -= 1;
-        const shift: u3 = @intCast(self.bits_left);
-        return @intCast((self.current_byte >> shift) & 1);
+        return @intCast(try self.readBits(1));
     }
 
     fn readBits(self: *BitReader, count: u8) JpegError!u16 {
-        var result: u16 = 0;
-        for (0..count) |_| {
-            result = (result << 1) | try self.readBit();
-        }
+        if (count == 0) return 0;
+        try self.ensureBits(count);
+        const result = self.peekBitsNoFill(count);
+        self.dropBits(count);
         return result;
+    }
+
+    fn peekBits(self: *BitReader, count: u8) JpegError!u16 {
+        try self.ensureBits(count);
+        return self.peekBitsNoFill(count);
+    }
+
+    fn ensureBits(self: *BitReader, count: u8) JpegError!void {
+        while (self.bits_available < count) {
+            const next = try self.nextEntropyByte();
+            self.bit_buffer = (self.bit_buffer << 8) | next;
+            self.bits_available += 8;
+        }
+    }
+
+    fn tryEnsureBits(self: *BitReader, count: u8) JpegError!bool {
+        while (self.bits_available < count) {
+            const next = self.nextEntropyByte() catch |err| switch (err) {
+                error.UnexpectedJpegMarker => return false,
+                else => return err,
+            };
+            self.bit_buffer = (self.bit_buffer << 8) | next;
+            self.bits_available += 8;
+        }
+        return true;
+    }
+
+    fn peekBitsNoFill(self: *const BitReader, count: u8) u16 {
+        const shift: u5 = @intCast(self.bits_available - count);
+        return @intCast((self.bit_buffer >> shift) & bitMask(count));
+    }
+
+    fn dropBits(self: *BitReader, count: u8) void {
+        self.bits_available -= count;
+        if (self.bits_available == 0) {
+            self.bit_buffer = 0;
+        } else {
+            self.bit_buffer &= bitMask(self.bits_available);
+        }
     }
 
     fn nextEntropyByte(self: *BitReader) JpegError!u8 {
@@ -931,7 +1062,8 @@ const BitReader = struct {
     }
 
     fn consumeRestartMarker(self: *BitReader, expected_index: u8) JpegError!void {
-        self.bits_left = 0;
+        self.bit_buffer = 0;
+        self.bits_available = 0;
         if (self.position >= self.data.len) return error.InvalidJpegRestart;
         if (self.data[self.position] != 0xFF) return error.InvalidJpegRestart;
 
@@ -958,13 +1090,10 @@ fn divCeil(numerator: usize, denominator: usize) usize {
     return (numerator + denominator - 1) / denominator;
 }
 
+/// Expects a byte-domain value in `[0.0, 255.0]`.
 fn toByte(value: f32) u8 {
     const clamped = std.math.clamp(value, 0.0, 255.0);
     return @intFromFloat(std.math.round(clamped));
-}
-
-fn readU16(bytes: []const u8) u16 {
-    return std.mem.readInt(u16, bytes[0..2], .big);
 }
 
 fn isFrameMarker(marker: u8) bool {
@@ -976,6 +1105,59 @@ fn isFrameMarker(marker: u8) bool {
         => true,
         else => false,
     };
+}
+
+fn buildSingleComponentTestJpeg(
+    allocator: std.mem.Allocator,
+    width: usize,
+    height: usize,
+    frame_marker: u8,
+    restart_interval: ?u16,
+) JpegError![]u8 {
+    var bytes = ByteList.init(allocator);
+    errdefer bytes.deinit();
+
+    const quant = buildScaledQuantizationTable(&standard_luminance_quantization, 90);
+    const dc_table = try buildEncoderHuffmanTable(&bits_dc_luminance, &values_dc_luminance);
+    const ac_table = try buildEncoderHuffmanTable(&bits_ac_luminance, &values_ac_luminance);
+    const frame_components = [_]FrameHeaderComponentSpec{
+        .{ .id = 0x01, .sampling = 0x11, .quantization_table = 0x00 },
+    };
+    const scan_components = [_]ScanComponentSpec{
+        .{ .id = 0x01, .table_selectors = 0x00 },
+    };
+
+    try appendMarker(&bytes, 0xD8);
+    try writeApp0Jfif(&bytes);
+    try writeQuantizationTableSegment(&bytes, 0, &quant);
+    if (restart_interval) |interval| {
+        try writeRestartInterval(&bytes, interval);
+    }
+    try writeFrameHeader(&bytes, frame_marker, width, height, frame_components[0..]);
+    try writeHuffmanTableSegment(&bytes, 0, 0, &bits_dc_luminance, &values_dc_luminance);
+    try writeHuffmanTableSegment(&bytes, 1, 0, &bits_ac_luminance, &values_ac_luminance);
+    try writeStartOfScan(&bytes, scan_components[0..]);
+
+    var writer = BitWriter{ .bytes = &bytes };
+    const total_mcus = divCeil(width, 8) * divCeil(height, 8);
+    var restart_index: u8 = 0;
+    for (0..total_mcus) |mcu_index| {
+        try dc_table.emit(&writer, 0);
+        try ac_table.emit(&writer, 0x00);
+
+        if (restart_interval) |interval| {
+            const next_mcu = mcu_index + 1;
+            if (next_mcu < total_mcus and next_mcu % interval == 0) {
+                try writer.flush();
+                try appendMarker(&bytes, 0xD0 + restart_index);
+                restart_index = (restart_index + 1) & 0x07;
+            }
+        }
+    }
+
+    try writer.flush();
+    try appendMarker(&bytes, 0xD9);
+    return try bytes.toOwnedSlice();
 }
 
 test "jpeg metadata parser extracts baseline frame information" {
@@ -1011,6 +1193,60 @@ test "jpeg metadata parser extracts baseline frame information" {
     try std.testing.expectEqual(@as(usize, 3), metadata.component_count);
     try std.testing.expectEqual(@as(usize, 1), metadata.quantization_table_count);
     try std.testing.expectEqual(@as(usize, 1), metadata.huffman_dc_table_count);
+}
+
+test "jpeg decode supports a single-component grayscale frame" {
+    const allocator = std.testing.allocator;
+    const bytes = try buildSingleComponentTestJpeg(allocator, 8, 8, 0xC0, null);
+    defer allocator.free(bytes);
+
+    const metadata = try inspect(bytes);
+    try std.testing.expectEqual(@as(usize, 1), metadata.component_count);
+
+    var decoded = try decode(allocator, bytes);
+    defer decoded.deinit();
+
+    for (decoded.pixels) |pixel| {
+        try std.testing.expectEqual(@as(u8, 128), pixel.r);
+        try std.testing.expectEqual(@as(u8, 128), pixel.g);
+        try std.testing.expectEqual(@as(u8, 128), pixel.b);
+    }
+}
+
+test "jpeg restart marker helper consumes the expected marker" {
+    var reader = BitReader{
+        .data = &.{ 0b1011_1111, 0xFF, 0xD0, 0b1100_0000 },
+    };
+
+    try std.testing.expectEqual(@as(u16, 0b101), try reader.readBits(3));
+    try reader.consumeRestartMarker(0);
+    try std.testing.expectEqual(@as(u16, 0b11), try reader.readBits(2));
+}
+
+test "jpeg restart reset clears dc predictors" {
+    var components = [_]FrameComponent{
+        .{ .dc_predictor = 14 },
+        .{ .dc_predictor = -9 },
+    };
+    restartIndexReset(components[0..]);
+    try std.testing.expectEqual(@as(i16, 0), components[0].dc_predictor);
+    try std.testing.expectEqual(@as(i16, 0), components[1].dc_predictor);
+}
+
+test "jpeg decode rejects progressive frames" {
+    const allocator = std.testing.allocator;
+    const bytes = try buildSingleComponentTestJpeg(allocator, 8, 8, 0xC2, null);
+    defer allocator.free(bytes);
+
+    try std.testing.expectError(error.UnsupportedJpegFeature, decode(allocator, bytes));
+}
+
+test "jpeg decode rejects arithmetic-coded frames" {
+    const allocator = std.testing.allocator;
+    const bytes = try buildSingleComponentTestJpeg(allocator, 8, 8, 0xC9, null);
+    defer allocator.free(bytes);
+
+    try std.testing.expectError(error.UnsupportedJpegFeature, decode(allocator, bytes));
 }
 
 test "jpeg encode and decode round trip a small color raster" {

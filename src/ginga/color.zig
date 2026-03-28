@@ -29,6 +29,7 @@ pub fn u8ToUnit(value: u8) f32 {
     return @as(f32, @floatFromInt(value)) / 255.0;
 }
 
+/// Expects a normalized unit-range value in `[0.0, 1.0]`.
 pub fn unitToU8(value: f32) u8 {
     const scaled = std.math.clamp(value * 255.0, 0.0, 255.0);
     return @as(u8, @intFromFloat(std.math.round(scaled)));

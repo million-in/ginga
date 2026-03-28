@@ -1,4 +1,5 @@
 const std = @import("std");
+const color = @import("color.zig");
 
 pub const Vec2 = struct {
     x: f32 = 0.0,
@@ -65,12 +66,13 @@ pub const RgbF32 = struct {
 
     pub fn fromRgb8(value: Rgb8) @This() {
         return .{
-            .r = srgbToLinear(channelToUnitFloat(u8, value.r)),
-            .g = srgbToLinear(channelToUnitFloat(u8, value.g)),
-            .b = srgbToLinear(channelToUnitFloat(u8, value.b)),
+            .r = color.srgbToLinearUnit(channelToUnitFloat(u8, value.r)),
+            .g = color.srgbToLinearUnit(channelToUnitFloat(u8, value.g)),
+            .b = color.srgbToLinearUnit(channelToUnitFloat(u8, value.b)),
         };
     }
 
+    /// Accepted inputs: `RgbF32`, `Rgb8`, scalar floats, scalar integers, or structs with `r`, `g`, and `b` fields.
     pub fn fromAny(value: anytype) @This() {
         const T = @TypeOf(value);
         if (T == RgbF32) return value;
@@ -172,7 +174,7 @@ fn channelToLinear(value: anytype) f32 {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
         .float, .comptime_float => @as(f32, @floatCast(value)),
-        .int, .comptime_int => srgbToLinear(channelToUnitFloat(T, value)),
+        .int, .comptime_int => color.srgbToLinearUnit(channelToUnitFloat(T, value)),
         else => @compileError("unsupported channel type"),
     };
 }
@@ -185,22 +187,13 @@ fn channelToUnitFloat(comptime T: type, value: T) f32 {
     };
 }
 
-fn srgbToLinear(v: f32) f32 {
-    const clamped = std.math.clamp(v, 0.0, 1.0);
-    if (clamped <= 0.04045) return clamped / 12.92;
-    return std.math.pow(f32, (clamped + 0.055) / 1.055, 2.4);
-}
-
 fn linearToSrgb8(v: f32) u8 {
-    const clamped = std.math.clamp(v, 0.0, 1.0);
-    const encoded = if (clamped <= 0.0031308) clamped * 12.92 else 1.055 * std.math.pow(f32, clamped, 1.0 / 2.4) - 0.055;
-    const scaled = std.math.clamp(encoded * 255.0, 0.0, 255.0);
-    return @as(u8, @intFromFloat(std.math.round(scaled)));
+    return color.unitToU8(color.linearToSrgbUnit(v));
 }
 
 test "rgb8 to linear and back is stable" {
-    const color = Rgb8{ .r = 128, .g = 64, .b = 255 };
-    const linear = color.toRgbF32();
+    const sample = Rgb8{ .r = 128, .g = 64, .b = 255 };
+    const linear = sample.toRgbF32();
     const round_trip = linear.toRgb8();
     try std.testing.expect(round_trip.r == 128);
     try std.testing.expect(round_trip.g == 64);

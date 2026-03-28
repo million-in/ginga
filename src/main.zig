@@ -2,8 +2,15 @@ const std = @import("std");
 const ginga = @import("ginga");
 
 pub fn main() void {
-    ginga.cli.run(std.heap.page_allocator) catch |err| {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    var exit_code: u8 = 0;
+
+    ginga.cli.run(allocator) catch |err| {
         ginga.cli.reportError(err) catch {};
-        std.process.exit(1);
+        exit_code = 1;
     };
+
+    _ = gpa.deinit();
+    if (exit_code != 0) std.process.exit(exit_code);
 }

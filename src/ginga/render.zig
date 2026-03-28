@@ -52,7 +52,8 @@ pub fn renderPreview(allocator: std.mem.Allocator, source: anytype, options: Ren
     const reconstructed = try allocator.alloc(panel.RgbF32, total_pixels);
     defer allocator.free(reconstructed);
 
-    reconstructRaster(
+    try reconstructRaster(
+        allocator,
         reconstructed,
         raster,
         source_width,
@@ -85,6 +86,7 @@ pub fn renderPreview(allocator: std.mem.Allocator, source: anytype, options: Ren
 }
 
 fn reconstructRaster(
+    allocator: std.mem.Allocator,
     output: []panel.RgbF32,
     source: anytype,
     source_width: usize,
@@ -93,86 +95,184 @@ fn reconstructRaster(
     output_height: usize,
     kernel: sampling.WindowedSinc,
     spectral_pipeline: SpectralPipelineMode,
-) void {
-    const support = kernel.supportRadius();
-    const source_width_f = @as(f32, @floatFromInt(source_width));
-    const source_height_f = @as(f32, @floatFromInt(source_height));
-    const output_width_f = @as(f32, @floatFromInt(output_width));
-    const output_height_f = @as(f32, @floatFromInt(output_height));
+) RenderError!void {
+    const x_taps = try precomputeAxisTaps(allocator, source_width, output_width, kernel);
+    defer allocator.free(x_taps);
+    const x_tap_stride = axisTapStride(kernel.supportRadius());
 
-    var oy: usize = 0;
-    while (oy < output_height) : (oy += 1) {
-        const src_y = ((@as(f32, @floatFromInt(oy)) + 0.5) * source_height_f / output_height_f) - 0.5;
-        var ox: usize = 0;
-        while (ox < output_width) : (ox += 1) {
-            const src_x = ((@as(f32, @floatFromInt(ox)) + 0.5) * source_width_f / output_width_f) - 0.5;
-            output[oy * output_width + ox] = sampleAt(
-                source,
-                source_width,
-                source_height,
-                src_x,
-                src_y,
-                support,
-                kernel,
-                spectral_pipeline,
-            );
-        }
-    }
+    const y_taps = try precomputeAxisTaps(allocator, source_height, output_height, kernel);
+    defer allocator.free(y_taps);
+    const y_tap_stride = axisTapStride(kernel.supportRadius());
+
+    const intermediate = try allocator.alloc(panel.RgbF32, source_height * output_width);
+    defer allocator.free(intermediate);
+
+    try horizontalResample(
+        allocator,
+        intermediate,
+        source,
+        source_width,
+        source_height,
+        output_width,
+        x_taps,
+        x_tap_stride,
+        spectral_pipeline,
+    );
+    verticalResample(output, intermediate, output_width, output_height, y_taps, y_tap_stride);
 }
 
-fn sampleAt(
-    source: anytype,
-    source_width: usize,
-    source_height: usize,
-    src_x: f32,
-    src_y: f32,
-    support: f32,
+const AxisTap = struct {
+    index: usize,
+    weight: f32,
+};
+
+const AxisKernel = struct {
+    offset: usize,
+    count: usize,
+};
+
+fn precomputeAxisTaps(
+    allocator: std.mem.Allocator,
+    source_len: usize,
+    output_len: usize,
     kernel: sampling.WindowedSinc,
-    spectral_pipeline: SpectralPipelineMode,
-) panel.RgbF32 {
-    const fallback = sampleNearest(source, source_width, source_height, src_x, src_y, spectral_pipeline);
-    if (support <= 0.0) return fallback;
+) RenderError![]AxisTap {
+    const support = kernel.supportRadius();
+    const tap_stride = axisTapStride(support);
+    const taps = try allocator.alloc(AxisTap, output_len * tap_stride);
+    errdefer allocator.free(taps);
 
-    const x_start: isize = @intFromFloat(std.math.floor(src_x - support));
-    const x_end: isize = @intFromFloat(std.math.ceil(src_x + support));
-    const y_start: isize = @intFromFloat(std.math.floor(src_y - support));
-    const y_end: isize = @intFromFloat(std.math.ceil(src_y + support));
+    const source_len_f = @as(f32, @floatFromInt(source_len));
+    const output_len_f = @as(f32, @floatFromInt(output_len));
 
-    var accum = panel.RgbF32.zero();
-    var weight_sum: f32 = 0.0;
+    var output_index: usize = 0;
+    while (output_index < output_len) : (output_index += 1) {
+        const src = ((@as(f32, @floatFromInt(output_index)) + 0.5) * source_len_f / output_len_f) - 0.5;
+        const range_start: isize = @intFromFloat(std.math.floor(src - support));
+        const range_end: isize = @intFromFloat(std.math.ceil(src + support));
+        const base = output_index * tap_stride;
 
-    var ny = y_start;
-    while (ny <= y_end) : (ny += 1) {
-        const wy = kernel.weight(src_y - @as(f32, @floatFromInt(ny)));
-        if (wy == 0.0) continue;
-        const iy = clampIndex(ny, source_height);
-        var nx = x_start;
-        while (nx <= x_end) : (nx += 1) {
-            const wx = kernel.weight(src_x - @as(f32, @floatFromInt(nx)));
-            const weight = wx * wy;
+        var count: usize = 0;
+        var weight_sum: f32 = 0.0;
+        var candidate = range_start;
+        while (candidate <= range_end) : (candidate += 1) {
+            const weight = kernel.weight(src - @as(f32, @floatFromInt(candidate)));
             if (weight == 0.0) continue;
-            const ix = clampIndex(nx, source_width);
-            const sample = sourcePixel(source, ix, iy, spectral_pipeline);
-            accum = accum.add(sample.scale(weight));
+
+            taps[base + 1 + count] = .{
+                .index = clampIndex(candidate, source_len),
+                .weight = weight,
+            };
             weight_sum += weight;
+            count += 1;
         }
+
+        if (count == 0 or weight_sum <= 0.0) {
+            taps[base] = .{ .index = 0, .weight = 0.0 };
+            taps[base + 1] = .{
+                .index = clampIndex(@as(isize, @intFromFloat(std.math.round(src))), source_len),
+                .weight = 1.0,
+            };
+            continue;
+        }
+
+        const normalization = 1.0 / weight_sum;
+        var tap_index: usize = 0;
+        while (tap_index < count) : (tap_index += 1) {
+            taps[base + 1 + tap_index].weight *= normalization;
+        }
+        taps[base] = .{
+            .index = count,
+            .weight = 0.0,
+        };
     }
 
-    if (weight_sum <= 0.0) return fallback;
-    return accum.scale(1.0 / weight_sum);
+    return taps;
 }
 
-fn sampleNearest(
+fn axisMaxTapCount(support: f32) usize {
+    if (support <= 0.0) return 1;
+    return @as(usize, @intFromFloat(std.math.ceil(support * 2.0))) + 2;
+}
+
+fn axisTapStride(support: f32) usize {
+    return axisMaxTapCount(support) + 1;
+}
+
+fn axisKernelAt(taps: []const AxisTap, output_index: usize, tap_stride: usize) AxisKernel {
+    return .{
+        .offset = output_index * tap_stride + 1,
+        .count = taps[output_index * tap_stride].index,
+    };
+}
+
+fn horizontalResample(
+    allocator: std.mem.Allocator,
+    output: []panel.RgbF32,
     source: anytype,
     source_width: usize,
     source_height: usize,
-    src_x: f32,
-    src_y: f32,
+    output_width: usize,
+    x_taps: []const AxisTap,
+    tap_stride: usize,
     spectral_pipeline: SpectralPipelineMode,
-) panel.RgbF32 {
-    const ix = clampIndex(@as(isize, @intFromFloat(std.math.round(src_x))), source_width);
-    const iy = clampIndex(@as(isize, @intFromFloat(std.math.round(src_y))), source_height);
-    return sourcePixel(source, ix, iy, spectral_pipeline);
+) RenderError!void {
+    const row_cache = try allocator.alloc(panel.RgbF32, source_width);
+    defer allocator.free(row_cache);
+
+    const row_valid = try allocator.alloc(bool, source_width);
+    defer allocator.free(row_valid);
+
+    var y: usize = 0;
+    while (y < source_height) : (y += 1) {
+        @memset(row_valid, false);
+
+        var out_x: usize = 0;
+        while (out_x < output_width) : (out_x += 1) {
+            const kernel = axisKernelAt(x_taps, out_x, tap_stride);
+            var accum = panel.RgbF32.zero();
+
+            var tap_index: usize = 0;
+            while (tap_index < kernel.count) : (tap_index += 1) {
+                const tap = x_taps[kernel.offset + tap_index];
+                if (!row_valid[tap.index]) {
+                    row_cache[tap.index] = sourcePixel(source, tap.index, y, spectral_pipeline);
+                    row_valid[tap.index] = true;
+                }
+                const sample = row_cache[tap.index];
+                accum = accum.add(sample.scale(tap.weight));
+            }
+
+            output[y * output_width + out_x] = accum;
+        }
+    }
+}
+
+fn verticalResample(
+    output: []panel.RgbF32,
+    input: []const panel.RgbF32,
+    width: usize,
+    output_height: usize,
+    y_taps: []const AxisTap,
+    tap_stride: usize,
+) void {
+    var out_y: usize = 0;
+    while (out_y < output_height) : (out_y += 1) {
+        const kernel = axisKernelAt(y_taps, out_y, tap_stride);
+        var x: usize = 0;
+        while (x < width) : (x += 1) {
+            var accum = panel.RgbF32.zero();
+
+            var tap_index: usize = 0;
+            while (tap_index < kernel.count) : (tap_index += 1) {
+                const tap = y_taps[kernel.offset + tap_index];
+                const sample = input[tap.index * width + x];
+                accum = accum.add(sample.scale(tap.weight));
+            }
+
+            output[out_y * width + x] = accum;
+        }
+    }
 }
 
 fn sourcePixel(source: anytype, x: usize, y: usize, spectral_pipeline: SpectralPipelineMode) panel.RgbF32 {
@@ -182,6 +282,7 @@ fn sourcePixel(source: anytype, x: usize, y: usize, spectral_pipeline: SpectralP
     };
     const Source = @TypeOf(view);
 
+    // `@hasDecl` resolves at comptime, so only the matching branch is emitted.
     if (@hasDecl(Source, "getSpectrum")) {
         const spectrum_value = view.getSpectrum(x, y);
         return switch (spectral_pipeline) {
@@ -206,6 +307,9 @@ fn sourcePixel(source: anytype, x: usize, y: usize, spectral_pipeline: SpectralP
     return switch (spectral_pipeline) {
         .none => value,
         .approximate => spectral.reprojectPanelRgbApprox(value),
+        // Conventional RGB rasters still use reconstruction from RGB, while
+        // external `.spd` files and `SpectralRaster` inputs take the direct
+        // `getSpectrum()` path above.
         .native => spectral.reprojectPanelRgbApprox(value),
     };
 }
@@ -440,6 +544,40 @@ test "spectral render path preserves dominant hue ordering" {
 
     try std.testing.expect(preview.pixels[0].r >= preview.pixels[0].g);
     try std.testing.expect(preview.pixels[0].r >= preview.pixels[0].b);
+}
+
+test "spectral render path keeps neutral preview neutral" {
+    const allocator = std.testing.allocator;
+
+    const Raster = struct {
+        fn width(self: @This()) usize {
+            _ = self;
+            return 1;
+        }
+
+        fn height(self: @This()) usize {
+            _ = self;
+            return 1;
+        }
+
+        fn getPixel(self: @This(), x: usize, y: usize) panel.Rgb8 {
+            _ = self;
+            _ = x;
+            _ = y;
+            return .{ .r = 224, .g = 224, .b = 224 };
+        }
+    };
+
+    var preview = try renderPreview(allocator, Raster{}, .{
+        .output_width = 1,
+        .output_height = 1,
+        .apply_panel_spread = false,
+        .spectral_pipeline = .approximate,
+    });
+    defer preview.deinit();
+
+    try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(preview.pixels[0].r)), @as(f32, @floatFromInt(preview.pixels[0].g)), 4.0);
+    try std.testing.expectApproxEqAbs(@as(f32, @floatFromInt(preview.pixels[0].g)), @as(f32, @floatFromInt(preview.pixels[0].b)), 4.0);
 }
 
 test "native spectral render path can sample a direct spectrum source" {

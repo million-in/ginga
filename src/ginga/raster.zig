@@ -51,6 +51,16 @@ pub const Raster = struct {
     }
 
     pub fn fromPreview(allocator: std.mem.Allocator, preview: anytype) RasterError!@This() {
+        const Preview = @TypeOf(preview);
+        comptime {
+            if (@typeInfo(Preview) != .@"struct" or
+                !@hasField(Preview, "width") or
+                !@hasField(Preview, "height") or
+                !@hasField(Preview, "pixels"))
+            {
+                @compileError("preview values must expose width, height, and pixels");
+            }
+        }
         var image = try init(allocator, preview.width, preview.height);
         for (preview.pixels, 0..) |pixel, pixel_index| {
             image.pixels[pixel_index] = .{ .r = pixel.r, .g = pixel.g, .b = pixel.b, .a = 255 };
@@ -84,13 +94,15 @@ pub const Raster = struct {
     }
 
     pub fn row(self: @This(), y: usize) []Pixel {
+        if (y >= self.height_value) @panic("raster row index out of bounds");
         const start = y * self.width_value;
         return self.pixels[start .. start + self.width_value];
     }
 
     pub fn index(self: @This(), x: usize, y: usize) usize {
-        std.debug.assert(x < self.width_value);
-        std.debug.assert(y < self.height_value);
+        if (x >= self.width_value or y >= self.height_value) {
+            @panic("raster pixel index out of bounds");
+        }
         return y * self.width_value + x;
     }
 };

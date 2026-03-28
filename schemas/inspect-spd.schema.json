@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["ok", "format", "width", "height", "sampleCount", "lambdaMinNm", "lambdaStepNm"],
+  "properties": {
+    "ok": { "const": true },
+    "format": { "const": "spd" },
+    "width": { "type": "number" },
+    "height": { "type": "number" },
+    "sampleCount": { "type": "number" },
+    "lambdaMinNm": { "type": "number" },
+    "lambdaStepNm": { "type": "number" }
+  }
+}

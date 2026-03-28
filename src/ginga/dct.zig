@@ -11,44 +11,62 @@ pub const zigzag = [_]u8{
    53, 60, 61, 54, 47, 55, 62, 63,
 };
 
+const cosine_table = blk: {
+    var table: [8][8]f32 = undefined;
+    for (0..8) |sample_index| {
+        for (0..8) |freq_index| {
+            const sample = @as(f32, @floatFromInt(2 * sample_index + 1));
+            const freq = @as(f32, @floatFromInt(freq_index));
+            table[sample_index][freq_index] = std.math.cos((sample * freq * std.math.pi) / 16.0);
+        }
+    }
+    break :blk table;
+};
+
 pub fn forward(input: *const [64]f32, output: *[64]f32) void {
+    var horizontal: [64]f32 = undefined;
+
+    for (0..8) |y| {
+        for (0..8) |u| {
+            var sum: f32 = 0.0;
+            for (0..8) |x| {
+                sum += input[y * 8 + x] * cosine_table[x][u];
+            }
+            horizontal[y * 8 + u] = 0.5 * alpha(u) * sum;
+        }
+    }
+
     for (0..8) |v| {
         for (0..8) |u| {
             var sum: f32 = 0.0;
             for (0..8) |y| {
-                for (0..8) |x| {
-                    const sample = input[y * 8 + x];
-                    const xf = @as(f32, @floatFromInt(2 * x + 1));
-                    const yf = @as(f32, @floatFromInt(2 * y + 1));
-                    const uf = @as(f32, @floatFromInt(u));
-                    const vf = @as(f32, @floatFromInt(v));
-                    const basis_x = std.math.cos((xf * uf * std.math.pi) / 16.0);
-                    const basis_y = std.math.cos((yf * vf * std.math.pi) / 16.0);
-                    sum += sample * basis_x * basis_y;
-                }
+                sum += horizontal[y * 8 + u] * cosine_table[y][v];
             }
-            output[v * 8 + u] = 0.25 * alpha(u) * alpha(v) * sum;
+            output[v * 8 + u] = 0.5 * alpha(v) * sum;
         }
     }
 }
 
 pub fn inverse(input: *const [64]f32, output: *[64]f32) void {
+    var horizontal: [64]f32 = undefined;
+
+    for (0..8) |v| {
+        for (0..8) |x| {
+            var sum: f32 = 0.0;
+            for (0..8) |u| {
+                sum += alpha(u) * input[v * 8 + u] * cosine_table[x][u];
+            }
+            horizontal[v * 8 + x] = 0.5 * sum;
+        }
+    }
+
     for (0..8) |y| {
         for (0..8) |x| {
             var sum: f32 = 0.0;
             for (0..8) |v| {
-                for (0..8) |u| {
-                    const coeff = input[v * 8 + u];
-                    const xf = @as(f32, @floatFromInt(2 * x + 1));
-                    const yf = @as(f32, @floatFromInt(2 * y + 1));
-                    const uf = @as(f32, @floatFromInt(u));
-                    const vf = @as(f32, @floatFromInt(v));
-                    const basis_x = std.math.cos((xf * uf * std.math.pi) / 16.0);
-                    const basis_y = std.math.cos((yf * vf * std.math.pi) / 16.0);
-                    sum += alpha(u) * alpha(v) * coeff * basis_x * basis_y;
-                }
+                sum += alpha(v) * horizontal[v * 8 + x] * cosine_table[y][v];
             }
-            output[y * 8 + x] = 0.25 * sum;
+            output[y * 8 + x] = 0.5 * sum;
         }
     }
 }

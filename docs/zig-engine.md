@@ -18,6 +18,8 @@ Implemented now:
 
 - PNG decode
 - PNG encode
+- SPD decode
+- SPD encode
 - JPEG/JPG baseline decode
 - JPEG/JPG baseline encode
 - raster model for RGBA8 storage
@@ -98,25 +100,30 @@ For direct spectral work, the engine now also exposes `SpectralRaster` so spectr
 
 ## Render Pipeline
 
-The current preview renderer is a two-stage approximation:
+The current preview renderer is a two-stage engine path:
 
-1. Reproject source RGB through an approximate spectral pipeline.
+1. Reproject source RGB through a spectral reconstruction pipeline when a spectral mode is requested.
 2. Reconstruct the source raster into the preview grid with a windowed-sinc kernel.
 3. Convolve the reconstructed image with a display-panel point-spread model.
 
 ### Spectral Stage
 
-`src/ginga/spectral.zig` currently implements an approximate spectral path:
+`src/ginga/spectral.zig` currently implements the RGB spectral reconstruction path:
 
-- RGB-derived smooth basis spectra
-- three cone-response integrals
-- cone-response to XYZ mapping
+- sampled daylight-weighted spectra over `400nm..700nm`
+- piecewise RGB -> spectrum reconstruction
+- XYZ integration through analytic CIE 1931 matching-function fits
+- XYZ <-> LMS cone mapping
 - XYZ to linear RGB reprojection
-- chromaticity extraction
+- white-balance correction and chromaticity extraction
 
-This is a real engine-owned spectral stage, but it is not yet a true SPD-native renderer. The current input to that stage is still RGB-derived approximation, not measured spectral power data per pixel.
+The desktop preview path now defaults to the non-spectral raster mode for latency and color stability. The spectral request modes still run entirely inside the Zig engine when explicitly requested.
 
-`src/ginga/spectral_raster.zig` adds the missing in-memory primitive for direct sampled spectra. That means the renderer can now accept a spectrum-native source in-core even though the file codecs still decode ordinary image formats into RGB rasters.
+This is a real engine-owned spectral stage. Conventional PNG and JPEG files still enter as RGB rasters, while `.spd` files enter and leave as direct sampled spectra.
+
+`src/ginga/spectral_raster.zig` adds the in-memory primitive for direct sampled spectra, and `src/ginga/spd.zig` adds the external binary container ingest/export path with wavelength-grid validation and resampling into the engine grid.
+
+The byte-level `.spd` container contract is documented in `docs/spd-format.md`.
 
 ### Sampling Kernel
 
@@ -379,19 +386,17 @@ Current limitations are deliberate and should be treated as open work, not hidde
 
 - JPEG/JPG support is limited to the baseline sequential subset
 - PNG compression uses stored deflate blocks, not an optimized compressor
-- the engine does not yet ingest SPD-native per-pixel spectral inputs
 - there is no chroma subsampling pipeline wired into output codecs yet
-- spectral rendering is still RGB-derived approximation rather than true measured SPD input
+- PNG and JPEG spectral rendering is still reconstruction from raster RGB rather than measured per-pixel spectra
 
 ## Recommended Next Work
 
 The next technically coherent milestones are:
 
-1. Replace the RGB-derived spectral approximation with a stronger spectral reconstruction model.
-2. Add SPD-native input support for the render pipeline.
-3. Extend JPEG to chroma-subsampled and progressive streams.
-4. Introduce a richer linear working image representation beyond RGBA8.
-5. Add golden-image regression tests for render output and codec round trips.
+1. Extend JPEG to chroma-subsampled and progressive streams.
+2. Introduce a richer linear working image representation beyond RGBA8.
+3. Add golden-image regression tests for render output and codec round trips.
+4. Add export tooling for `.spd` once the interchange contract settles.
 
 ## Design Principle
 
