@@ -44,7 +44,7 @@ The raw CLI preview request currently defaults to `none` when `spectralMode` is 
 
 ## Rendering Notes
 
-The renderer treats source samples as point samples and reconstructs onto the preview grid with a compact windowed-sinc kernel. The panel stage then distributes each reconstructed sample through the configured RGB stripe model. This is the current practical interpretation of the point-sample and point-spread math you specified earlier.
+The renderer treats source samples as point samples and reconstructs onto the preview grid with a compact windowed-sinc kernel. The panel stage then distributes each reconstructed sample through the configured RGB stripe model. This is the current practical interpretation of the point-sample and point-spread math specified earlier.
 
 ## Codec Notes
 
