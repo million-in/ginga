@@ -6,7 +6,6 @@ const raster = @import("raster.zig");
 
 const ByteList = std.array_list.Managed(u8);
 
-pub const JpegError = anyerror;
 
 pub const Component = struct {
     id: u8 = 0,
@@ -64,7 +63,7 @@ const HuffmanTable = struct {
     fast_symbol: [256]u8 = [_]u8{0} ** 256,
     fast_len: [256]u8 = [_]u8{0} ** 256,
 
-    fn decode(self: @This(), reader: *BitReader) JpegError!u8 {
+    fn decode(self: @This(), reader: *BitReader) !u8 {
         if (!self.present) return error.MissingJpegHuffmanTable;
 
         if (reader.bits_available >= 8 or try reader.tryEnsureBits(8)) {
@@ -203,7 +202,7 @@ const EncoderHuffmanTable = struct {
     codes: [256]u16 = [_]u16{0} ** 256,
     bit_lengths: [256]u8 = [_]u8{0} ** 256,
 
-    fn emit(self: @This(), writer: *BitWriter, symbol: u8) JpegError!void {
+    fn emit(self: @This(), writer: *BitWriter, symbol: u8) !void {
         const bit_length = self.bit_lengths[symbol];
         if (bit_length == 0) return error.InvalidJpegHuffmanCode;
         try writer.writeBits(self.codes[symbol], bit_length);
@@ -238,7 +237,7 @@ const BitWriter = struct {
     bit_buffer: u32 = 0,
     bits_filled: u8 = 0,
 
-    fn writeBits(self: *BitWriter, bits: u16, bit_count: u8) JpegError!void {
+    fn writeBits(self: *BitWriter, bits: u16, bit_count: u8) !void {
         if (bit_count == 0) return;
         self.bit_buffer = (self.bit_buffer << @intCast(bit_count)) | (@as(u32, bits) & bitMask(bit_count));
         self.bits_filled += bit_count;
@@ -256,7 +255,7 @@ const BitWriter = struct {
         }
     }
 
-    fn flush(self: *BitWriter) JpegError!void {
+    fn flush(self: *BitWriter) !void {
         if (self.bits_filled == 0) return;
         const pad_bits: u8 = 8 - self.bits_filled;
         const byte: u8 = @intCast((self.bit_buffer << @intCast(pad_bits)) | bitMask(pad_bits));
@@ -265,23 +264,23 @@ const BitWriter = struct {
         self.bits_filled = 0;
     }
 
-    fn emitByte(self: *BitWriter, byte: u8) JpegError!void {
+    fn emitByte(self: *BitWriter, byte: u8) !void {
         try self.bytes.append(byte);
         if (byte == 0xFF) try self.bytes.append(0x00);
     }
 };
 
-pub fn inspect(bytes: []const u8) JpegError!Metadata {
+pub fn inspect(bytes: []const u8) !Metadata {
     const state = try parse(bytes);
     return state.metadata;
 }
 
-pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) JpegError!raster.Raster {
+pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !raster.Raster {
     var state = try parse(bytes);
     return try decodeBaseline(allocator, &state);
 }
 
-pub fn encode(allocator: std.mem.Allocator, image: raster.Raster, quality: u8) JpegError![]u8 {
+pub fn encode(allocator: std.mem.Allocator, image: raster.Raster, quality: u8) ![]u8 {
     var bytes = ByteList.init(allocator);
     errdefer bytes.deinit();
 
@@ -323,7 +322,7 @@ fn buildScaledQuantizationTable(base: *const [64]u8, quality: u8) [64]u16 {
     return table;
 }
 
-fn buildEncoderHuffmanTable(counts: []const u8, symbols: []const u8) JpegError!EncoderHuffmanTable {
+fn buildEncoderHuffmanTable(counts: []const u8, symbols: []const u8) !EncoderHuffmanTable {
     var table = EncoderHuffmanTable{};
     var code: u16 = 0;
     var symbol_index: usize = 0;
@@ -345,30 +344,30 @@ fn buildEncoderHuffmanTable(counts: []const u8, symbols: []const u8) JpegError!E
     return table;
 }
 
-fn appendMarker(bytes: *ByteList, marker: u8) JpegError!void {
+fn appendMarker(bytes: *ByteList, marker: u8) !void {
     try bytes.append(0xFF);
     try bytes.append(marker);
 }
 
-fn appendU16(bytes: *ByteList, value: u16) JpegError!void {
+fn appendU16(bytes: *ByteList, value: u16) !void {
     try bytes.append(@intCast(value >> 8));
     try bytes.append(@intCast(value & 0xFF));
 }
 
-fn writeApp0Jfif(bytes: *ByteList) JpegError!void {
+fn writeApp0Jfif(bytes: *ByteList) !void {
     try appendMarker(bytes, 0xE0);
     try appendU16(bytes, 16);
     try bytes.appendSlice("JFIF\x00");
     try bytes.appendSlice(&.{ 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00 });
 }
 
-fn writeRestartInterval(bytes: *ByteList, interval: u16) JpegError!void {
+fn writeRestartInterval(bytes: *ByteList, interval: u16) !void {
     try appendMarker(bytes, 0xDD);
     try appendU16(bytes, 4);
     try appendU16(bytes, interval);
 }
 
-fn writeQuantizationTableSegment(bytes: *ByteList, table_id: u8, table: *const [64]u16) JpegError!void {
+fn writeQuantizationTableSegment(bytes: *ByteList, table_id: u8, table: *const [64]u16) !void {
     try appendMarker(bytes, 0xDB);
     try appendU16(bytes, 67);
     try bytes.append(table_id);
@@ -383,7 +382,7 @@ fn writeFrameHeader(
     width: usize,
     height: usize,
     components: []const FrameHeaderComponentSpec,
-) JpegError!void {
+) !void {
     if (width == 0 or height == 0 or width > std.math.maxInt(u16) or height > std.math.maxInt(u16) or
         components.len == 0 or components.len > 4)
     {
@@ -408,7 +407,7 @@ fn writeBaselineFrameHeader(
     width: usize,
     height: usize,
     components: []const FrameHeaderComponentSpec,
-) JpegError!void {
+) !void {
     try writeFrameHeader(bytes, 0xC0, width, height, components);
 }
 
@@ -418,7 +417,7 @@ fn writeHuffmanTableSegment(
     table_id: u8,
     counts: []const u8,
     symbols: []const u8,
-) JpegError!void {
+) !void {
     try appendMarker(bytes, 0xC4);
     try appendU16(bytes, @intCast(2 + 1 + 16 + symbols.len));
     try bytes.append((class << 4) | table_id);
@@ -426,7 +425,7 @@ fn writeHuffmanTableSegment(
     try bytes.appendSlice(symbols);
 }
 
-fn writeStartOfScan(bytes: *ByteList, components: []const ScanComponentSpec) JpegError!void {
+fn writeStartOfScan(bytes: *ByteList, components: []const ScanComponentSpec) !void {
     if (components.len == 0 or components.len > 4) return error.InvalidDimensions;
     try appendMarker(bytes, 0xDA);
     try appendU16(bytes, @intCast(6 + components.len * 2));
@@ -447,7 +446,7 @@ fn encodeEntropyData(
     ac_luma: EncoderHuffmanTable,
     dc_chroma: EncoderHuffmanTable,
     ac_chroma: EncoderHuffmanTable,
-) JpegError!void {
+) !void {
     var writer = BitWriter{ .bytes = bytes };
     var y_predictor: i16 = 0;
     var cb_predictor: i16 = 0;
@@ -504,7 +503,7 @@ fn encodeComponentBlock(
     quant_table: *const [64]u16,
     dc_table: EncoderHuffmanTable,
     ac_table: EncoderHuffmanTable,
-) JpegError!void {
+) !void {
     var transformed: [64]f32 = undefined;
     var quantized: [64]i16 = undefined;
     dct.forward(samples, &transformed);
@@ -518,7 +517,7 @@ fn encodeQuantizedBlock(
     block: *const [64]i16,
     dc_table: EncoderHuffmanTable,
     ac_table: EncoderHuffmanTable,
-) JpegError!void {
+) !void {
     const dc_delta = block[0] - predictor.*;
     predictor.* = block[0];
     const dc_size = magnitudeCategory(dc_delta);
@@ -565,7 +564,7 @@ fn magnitudeBits(value: i16, bit_count: u8) u16 {
     return @intCast(((@as(i32, 1) << @intCast(bit_count)) - 1) + value);
 }
 
-fn parse(bytes: []const u8) JpegError!ParseState {
+fn parse(bytes: []const u8) !ParseState {
     if (bytes.len < 4 or bytes[0] != 0xFF or bytes[1] != 0xD8) return error.InvalidJpegSignature;
 
     var state = ParseState{};
@@ -624,7 +623,7 @@ fn parse(bytes: []const u8) JpegError!ParseState {
     return state;
 }
 
-fn decodeBaseline(allocator: std.mem.Allocator, state: *ParseState) JpegError!raster.Raster {
+fn decodeBaseline(allocator: std.mem.Allocator, state: *ParseState) !raster.Raster {
     if (!state.metadata.is_baseline) return error.UnsupportedJpegFeature;
     if (state.metadata.is_progressive or state.metadata.is_lossless or state.metadata.uses_arithmetic_coding) {
         return error.UnsupportedJpegFeature;
@@ -744,7 +743,7 @@ fn decodeBlock(
     dc_table: HuffmanTable,
     ac_table: HuffmanTable,
     coeffs: *[64]i16,
-) JpegError!void {
+) !void {
     coeffs.* = [_]i16{0} ** 64;
 
     const dc_size = try dc_table.decode(reader);
@@ -814,7 +813,7 @@ fn restartIndexReset(components: []FrameComponent) void {
     }
 }
 
-fn parseFrameSegment(state: *ParseState, marker: u8, segment: []const u8) JpegError!void {
+fn parseFrameSegment(state: *ParseState, marker: u8, segment: []const u8) !void {
     if (segment.len < 6) return error.InvalidJpegSegment;
     const component_count = segment[5];
     if (segment.len != 6 + component_count * 3) return error.InvalidJpegSegment;
@@ -850,7 +849,7 @@ fn parseFrameSegment(state: *ParseState, marker: u8, segment: []const u8) JpegEr
     }
 }
 
-fn parseQuantizationTables(state: *ParseState, segment: []const u8) JpegError!void {
+fn parseQuantizationTables(state: *ParseState, segment: []const u8) !void {
     var offset: usize = 0;
     while (offset < segment.len) {
         const precision_and_id = segment[offset];
@@ -881,7 +880,7 @@ fn parseQuantizationTables(state: *ParseState, segment: []const u8) JpegError!vo
     }
 }
 
-fn parseHuffmanTables(state: *ParseState, segment: []const u8) JpegError!void {
+fn parseHuffmanTables(state: *ParseState, segment: []const u8) !void {
     var offset: usize = 0;
     while (offset < segment.len) {
         const class_and_id = segment[offset];
@@ -913,7 +912,7 @@ fn parseHuffmanTables(state: *ParseState, segment: []const u8) JpegError!void {
     }
 }
 
-fn parseStartOfScan(state: *ParseState, segment: []const u8) JpegError!void {
+fn parseStartOfScan(state: *ParseState, segment: []const u8) !void {
     if (segment.len < 6) return error.InvalidJpegSegment;
     const component_count = segment[0];
     if (component_count == 0 or component_count > state.frame_component_count) return error.UnsupportedJpegFeature;
@@ -943,7 +942,7 @@ fn findFrameComponentIndex(state: *const ParseState, component_id: u8) ?usize {
     return null;
 }
 
-fn buildHuffmanTable(counts: []const u8, symbols: []const u8) JpegError!HuffmanTable {
+fn buildHuffmanTable(counts: []const u8, symbols: []const u8) !HuffmanTable {
     var table = HuffmanTable{ .present = true };
     var code: u16 = 0;
     var symbol_index: usize = 0;
@@ -993,11 +992,11 @@ const BitReader = struct {
     bit_buffer: u32 = 0,
     bits_available: u8 = 0,
 
-    fn readBit(self: *BitReader) JpegError!u1 {
+    fn readBit(self: *BitReader) !u1 {
         return @intCast(try self.readBits(1));
     }
 
-    fn readBits(self: *BitReader, count: u8) JpegError!u16 {
+    fn readBits(self: *BitReader, count: u8) !u16 {
         if (count == 0) return 0;
         try self.ensureBits(count);
         const result = self.peekBitsNoFill(count);
@@ -1005,12 +1004,12 @@ const BitReader = struct {
         return result;
     }
 
-    fn peekBits(self: *BitReader, count: u8) JpegError!u16 {
+    fn peekBits(self: *BitReader, count: u8) !u16 {
         try self.ensureBits(count);
         return self.peekBitsNoFill(count);
     }
 
-    fn ensureBits(self: *BitReader, count: u8) JpegError!void {
+    fn ensureBits(self: *BitReader, count: u8) !void {
         while (self.bits_available < count) {
             const next = try self.nextEntropyByte();
             self.bit_buffer = (self.bit_buffer << 8) | next;
@@ -1018,7 +1017,7 @@ const BitReader = struct {
         }
     }
 
-    fn tryEnsureBits(self: *BitReader, count: u8) JpegError!bool {
+    fn tryEnsureBits(self: *BitReader, count: u8) !bool {
         while (self.bits_available < count) {
             const next = self.nextEntropyByte() catch |err| switch (err) {
                 error.UnexpectedJpegMarker => return false,
@@ -1044,7 +1043,7 @@ const BitReader = struct {
         }
     }
 
-    fn nextEntropyByte(self: *BitReader) JpegError!u8 {
+    fn nextEntropyByte(self: *BitReader) !u8 {
         if (self.position >= self.data.len) return error.UnexpectedEndOfJpegEntropy;
         const byte = self.data[self.position];
         self.position += 1;
@@ -1061,7 +1060,7 @@ const BitReader = struct {
         return error.UnexpectedJpegMarker;
     }
 
-    fn consumeRestartMarker(self: *BitReader, expected_index: u8) JpegError!void {
+    fn consumeRestartMarker(self: *BitReader, expected_index: u8) !void {
         self.bit_buffer = 0;
         self.bits_available = 0;
         if (self.position >= self.data.len) return error.InvalidJpegRestart;
@@ -1075,7 +1074,7 @@ const BitReader = struct {
     }
 };
 
-fn receiveExtend(reader: *BitReader, bit_count: u8) JpegError!i16 {
+fn receiveExtend(reader: *BitReader, bit_count: u8) !i16 {
     if (bit_count == 0) return 0;
     const raw = try reader.readBits(bit_count);
     const threshold: i32 = @as(i32, 1) << @intCast(bit_count - 1);
@@ -1113,7 +1112,7 @@ fn buildSingleComponentTestJpeg(
     height: usize,
     frame_marker: u8,
     restart_interval: ?u16,
-) JpegError![]u8 {
+) ![]u8 {
     var bytes = ByteList.init(allocator);
     errdefer bytes.deinit();
 

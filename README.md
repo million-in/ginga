@@ -13,7 +13,7 @@ That gives the project a few distinctive properties:
 
 - A single engine boundary for both CLI and desktop usage.
 - Native support for an external spectral raster format, `.spd`, alongside `png`, `jpg`, and `jpeg`.
-- A preview path that can stay in raster mode for speed or switch into spectral reconstruction modes when requested.
+- A desktop preview path that now defaults to spectral reconstruction, while the raw CLI preview contract can still request `none`, `approximate`, or `native`.
 - Machine-readable CLI responses that are usable from scripts, tests, and the desktop shell.
 - A build flow that installs `ginga` as a normal shell command instead of trapping usage inside the repo directory.
 
@@ -92,7 +92,7 @@ The main public interfaces are intentionally small:
 - `ginga capabilities`
   Exposes a machine-readable feature manifest so tooling can detect supported formats and render modes at runtime.
 
-The Electron app uses those same APIs through the local binary rather than introducing a second image-processing layer.
+The Electron app uses those same APIs through the local binary rather than introducing a second image-processing layer, and it now requests the spectral preview path by default.
 
 ## Documentation
 
@@ -105,4 +105,3 @@ Technical details live under `docs/`:
 - [Implementation status](progress.md)
 
 Contribution guidance lives in [CONTRIBUTING.md](CONTRIBUTING.md).
-

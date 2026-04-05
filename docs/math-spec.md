@@ -40,7 +40,7 @@ The current spectral paths are:
 - `native`
   A `SpectralRaster` or external `.spd` file can carry sampled spectra directly through the render path.
 
-The desktop preview request currently defaults to `none` for color stability and latency. Spectral modes remain available at the engine boundary. PNG and JPEG still decode into raster RGB first, while `.spd` enters as direct sampled spectra.
+The raw CLI preview request currently defaults to `none` when `spectralMode` is omitted. The desktop shell now requests `approximate` by default for raster inputs, while `.spd` inputs enter as direct sampled spectra and render through the native spectral path.
 
 ## Rendering Notes
 

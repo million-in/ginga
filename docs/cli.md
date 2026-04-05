@@ -62,6 +62,19 @@ Render preview through the engine:
 printf '{"command":"preview","imagePath":"/absolute/path/to/input.png"}\n' | ginga preview
 ```
 
+Render preview with explicit spectral mode:
+
+```bash
+printf '{"command":"preview","imagePath":"/absolute/path/to/input.png","spectralMode":"approximate"}\n' | ginga preview
+printf '{"command":"preview","imagePath":"/absolute/path/to/input.spd","spectralMode":"native"}\n' | ginga preview
+```
+
+Notes:
+
+- raw CLI preview defaults to `spectralMode: "none"` when the field is omitted
+- the desktop shell requests `spectralMode: "approximate"` by default
+- direct `.spd` inputs render through the native spectral path inside the engine
+
 Inspect feature support:
 
 ```bash
