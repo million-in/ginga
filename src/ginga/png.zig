@@ -4,7 +4,6 @@ const raster = @import("raster.zig");
 
 const signature = [_]u8{ 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
 
-pub const PngError = anyerror;
 pub const ImageHeader = struct {
     width: usize,
     height: usize,
@@ -48,7 +47,7 @@ const Header = struct {
         return (try std.math.add(usize, total_bits, 7)) / 8;
     }
 
-    fn validateBitDepth(self: @This()) PngError!void {
+    fn validateBitDepth(self: @This()) !void {
         switch (self.color_type) {
             .grayscale => switch (self.bit_depth) {
                 1, 2, 4, 8, 16 => {},
@@ -84,7 +83,7 @@ const Transparency = union(enum) {
     },
 };
 
-pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) PngError!raster.Raster {
+pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !raster.Raster {
     if (bytes.len < signature.len or !std.mem.eql(u8, bytes[0..signature.len], &signature)) {
         return error.InvalidSignature;
     }
@@ -204,7 +203,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) PngError!raster.R
     return image;
 }
 
-pub fn readHeader(bytes: []const u8) PngError!ImageHeader {
+pub fn readHeader(bytes: []const u8) !ImageHeader {
     if (bytes.len < signature.len + 4 + 4 + 13 + 4) return error.MissingIhdr;
     if (!std.mem.eql(u8, bytes[0..signature.len], &signature)) return error.InvalidSignature;
 
@@ -234,7 +233,7 @@ pub fn readHeader(bytes: []const u8) PngError!ImageHeader {
     };
 }
 
-pub fn encode(allocator: std.mem.Allocator, image: raster.Raster) PngError![]u8 {
+pub fn encode(allocator: std.mem.Allocator, image: raster.Raster) ![]u8 {
     const filtered = try encodeScanlines(allocator, image);
     defer allocator.free(filtered);
 
@@ -272,7 +271,7 @@ fn unfilterInto(
     header: Header,
     palette: ?[]const raster.Pixel,
     transparency: Transparency,
-) PngError!void {
+) !void {
     const row_bytes = try header.rowBytes();
     const row_total = try std.math.add(usize, row_bytes, 1);
     if (inflated.len != row_total * header.height) return error.SizeMismatch;
@@ -314,7 +313,7 @@ fn decodeRowInto(
     header: Header,
     palette: ?[]const raster.Pixel,
     transparency: Transparency,
-) PngError!void {
+) !void {
     switch (header.color_type) {
         .grayscale => {
             for (row, 0..) |*pixel, x| {
@@ -437,7 +436,7 @@ fn sample16ToByte(sample: u16) u8 {
     return @as(u8, @intCast((@as(u32, sample) * 255 + 32767) / 65535));
 }
 
-fn encodeScanlines(allocator: std.mem.Allocator, image: raster.Raster) PngError![]u8 {
+fn encodeScanlines(allocator: std.mem.Allocator, image: raster.Raster) ![]u8 {
     const channels: usize = 4;
     const row_bytes = try std.math.mul(usize, image.width_value, channels);
     const row_total = try std.math.add(usize, row_bytes, 1);
@@ -538,7 +537,7 @@ fn appendChunk(
     out: *std.ArrayList(u8),
     chunk_type: []const u8,
     chunk_data: []const u8,
-) PngError!void {
+) !void {
     var length_bytes: [4]u8 = undefined;
     writeU32(&length_bytes, @intCast(chunk_data.len));
     try out.appendSlice(allocator, &length_bytes);
@@ -549,7 +548,7 @@ fn appendChunk(
     try out.appendSlice(allocator, &crc_bytes);
 }
 
-fn encodeStoredZlib(allocator: std.mem.Allocator, payload: []const u8) PngError![]u8 {
+fn encodeStoredZlib(allocator: std.mem.Allocator, payload: []const u8) ![]u8 {
     var output = std.ArrayList(u8).empty;
     errdefer output.deinit(allocator);
 
@@ -612,7 +611,7 @@ fn buildTestPng(
     scanlines: []const u8,
     palette: ?[]const raster.Pixel,
     transparency_data: ?[]const u8,
-) PngError![]u8 {
+) ![]u8 {
     var output = std.ArrayList(u8).empty;
     errdefer output.deinit(allocator);
 

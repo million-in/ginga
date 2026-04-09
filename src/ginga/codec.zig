@@ -11,7 +11,6 @@ pub const ImageFormat = enum {
     spd,
 };
 
-pub const CodecError = anyerror;
 pub const max_image_bytes: usize = 256 * 1024 * 1024;
 
 pub const DecodedStorage = union(enum) {
@@ -55,7 +54,7 @@ pub const Inspection = union(ImageFormat) {
     spd: spd.Metadata,
 };
 
-pub fn inferFormat(path: []const u8) CodecError!ImageFormat {
+pub fn inferFormat(path: []const u8) !ImageFormat {
     if (path.len == 0) return error.UnknownFormat;
     const extension = std.fs.path.extension(path);
     if (std.ascii.eqlIgnoreCase(extension, ".png")) return .png;
@@ -65,7 +64,7 @@ pub fn inferFormat(path: []const u8) CodecError!ImageFormat {
     return error.UnknownFormat;
 }
 
-pub fn decodeFile(allocator: std.mem.Allocator, path: []const u8) CodecError!DecodedImage {
+pub fn decodeFile(allocator: std.mem.Allocator, path: []const u8) !DecodedImage {
     const format = try inferFormat(path);
     const bytes = try std.fs.cwd().readFileAlloc(allocator, path, max_image_bytes);
     defer allocator.free(bytes);
@@ -81,21 +80,23 @@ pub fn decodeFile(allocator: std.mem.Allocator, path: []const u8) CodecError!Dec
     };
 }
 
-pub fn inspectFile(allocator: std.mem.Allocator, path: []const u8) CodecError!Inspection {
+pub fn inspectFile(allocator: std.mem.Allocator, path: []const u8) !Inspection {
     const format = try inferFormat(path);
+
+    if (format == .png) {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+        var buf: [64]u8 = undefined;
+        const n = try file.readAll(&buf);
+        const header = try png.readHeader(buf[0..n]);
+        return .{ .png = .{ .width = header.width, .height = header.height } };
+    }
+
     const bytes = try std.fs.cwd().readFileAlloc(allocator, path, max_image_bytes);
     defer allocator.free(bytes);
 
     return switch (format) {
-        .png => blk: {
-            const header = try png.readHeader(bytes);
-            break :blk .{
-                .png = .{
-                    .width = header.width,
-                    .height = header.height,
-                },
-            };
-        },
+        .png => unreachable,
         .jpeg => .{ .jpeg = try jpeg.inspect(bytes) },
         .spd => .{ .spd = try spd.inspect(bytes) },
     };
@@ -106,7 +107,7 @@ pub fn encodeOwned(
     image: raster.Raster,
     format: ImageFormat,
     quality: u8,
-) CodecError![]u8 {
+) ![]u8 {
     return switch (format) {
         .png => try png.encode(allocator, image),
         .jpeg => try jpeg.encode(allocator, image, quality),
@@ -119,7 +120,7 @@ pub fn convertPath(
     input_path: []const u8,
     output_path: []const u8,
     quality: u8,
-) CodecError!void {
+) !void {
     var decoded = try decodeFile(allocator, input_path);
     defer decoded.deinit();
 

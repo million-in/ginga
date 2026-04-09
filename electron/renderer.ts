@@ -76,6 +76,8 @@ let galleryState: GalleryState = {
 };
 let batchSelection: string[] = [];
 let swipeStartX: number | null = null;
+let renderGeneration = 0;
+let pendingRenderTimer: number | null = null;
 
 function currentOutputFormat(): OutputFormat {
   return outputFormatSelect.value as OutputFormat;
@@ -294,6 +296,7 @@ function renderPreviewDetails(
     ['Source format', payload.format ?? 'unknown'],
     ['Source size', `${payload.sourceWidth ?? 0} × ${payload.sourceHeight ?? 0}`],
     ['Preview size', `${payload.previewWidth ?? 0} × ${payload.previewHeight ?? 0}`],
+    ['Spectral mode', response.request.spectralMode ?? 'none'],
     ['Preview encoding', 'png'],
     ['Pipeline', 'Zig render engine']
   ];
@@ -386,11 +389,14 @@ async function renderPath(imagePath: string): Promise<void> {
     return;
   }
 
+  const generation = ++renderGeneration;
   setStatus('Rendering preview...');
   const [previewOutcome, inspect] = await Promise.all([
     window.ginga.previewImage(trimmedPath) as Promise<PreviewBridgeOutcome>,
     inspectPayload(trimmedPath)
   ]);
+
+  if (generation !== renderGeneration) return;
 
   if (!previewOutcome.ok) {
     clearPreview('Preview failed before an image could be rendered.');
@@ -410,7 +416,11 @@ async function renderPath(imagePath: string): Promise<void> {
 
   setPreview(previewOutcome.response);
   renderPreviewDetails(trimmedPath, previewOutcome.response, inspect);
-  setResult(summarizeResponse(previewOutcome.response, inspect));
+  const summary = summarizeResponse(previewOutcome.response, inspect);
+  if (previewOutcome.response.payload) {
+    delete (previewOutcome.response.payload as Record<string, unknown>).previewPngBase64;
+  }
+  setResult(summary);
   setStatus('Preview completed.');
 }
 
@@ -511,7 +521,18 @@ async function navigateGallery(delta: number): Promise<void> {
   galleryState.currentIndex = nextIndex;
   updateGallerySummary();
   setCurrentImagePath(galleryState.filePaths[nextIndex]);
-  await renderPath(galleryState.filePaths[nextIndex]);
+
+  if (pendingRenderTimer !== null) {
+    clearTimeout(pendingRenderTimer);
+  }
+  const targetPath = galleryState.filePaths[nextIndex];
+  pendingRenderTimer = window.setTimeout(() => {
+    pendingRenderTimer = null;
+    renderPath(targetPath).catch((error: unknown) => {
+      clearPreview('The desktop shell hit an unexpected error.');
+      setStatus(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }, 120);
 }
 
 async function handleManualImagePathCommit(): Promise<void> {
@@ -627,13 +648,7 @@ async function batchConvert(): Promise<void> {
     return;
   }
 
-  const inputFormat = inferInputFormat(batchSelection[0]);
-  if (!inputFormat || batchSelection.some((filePath) => inferInputFormat(filePath) !== inputFormat)) {
-    setStatus('Batch selections must all use the same input format.');
-    replaceDetails([['Mode', 'Batch convert'], ['Status', 'Invalid selection']]);
-    setResult({ ok: false, error: 'Batch selections must all use the same input format' });
-    return;
-  }
+  const inputFormat = inferInputFormat(batchSelection[0]) ?? 'unknown';
 
   const outputDirectory = await window.ginga.openDirectoryDialog();
   if (outputDirectory.canceled) {
@@ -648,37 +663,45 @@ async function batchConvert(): Promise<void> {
   batchConvertButton.disabled = true;
   try {
     setStatus(`Running batch convert for ${batchSelection.length} image(s)...`);
-    for (const inputPath of batchSelection) {
-      const outputPath = buildBatchOutputPath(inputPath, outputDirectory.directoryPath, outputFormat);
-      try {
-        const outcome = (await window.ginga.convertImage(inputPath, outputPath, quality)) as ConvertBridgeOutcome;
-        if (!outcome.ok) {
+    let batchIndex = 0;
+    async function convertNext(): Promise<void> {
+      while (batchIndex < batchSelection.length) {
+        const i = batchIndex++;
+        const inputPath = batchSelection[i];
+        const outputPath = buildBatchOutputPath(inputPath, outputDirectory.directoryPath, outputFormat);
+        try {
+          const outcome = (await window.ginga.convertImage(inputPath, outputPath, quality)) as ConvertBridgeOutcome;
+          if (!outcome.ok) {
+            results.push({
+              inputPath,
+              outputPath,
+              ok: false,
+              compressionRatio: null,
+              error: outcome.error?.message ?? 'Unknown conversion failure'
+            });
+            continue;
+          }
+
+          results.push({
+            inputPath,
+            outputPath,
+            ok: true,
+            compressionRatio: outcome.response.details.compressionRatio
+          });
+        } catch (error) {
           results.push({
             inputPath,
             outputPath,
             ok: false,
             compressionRatio: null,
-            error: outcome.error?.message ?? 'Unknown conversion failure'
+            error: error instanceof Error ? error.message : String(error)
           });
-          continue;
         }
-
-        results.push({
-          inputPath,
-          outputPath,
-          ok: true,
-          compressionRatio: outcome.response.details.compressionRatio
-        });
-      } catch (error) {
-        results.push({
-          inputPath,
-          outputPath,
-          ok: false,
-          compressionRatio: null,
-          error: error instanceof Error ? error.message : String(error)
-        });
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(4, batchSelection.length) }, () => convertNext())
+    );
   } finally {
     batchConvertButton.disabled = false;
   }

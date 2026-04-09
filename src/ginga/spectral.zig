@@ -147,6 +147,44 @@ const white_balance_rgb = blk: {
     };
 };
 
+const cie_x_bar_values = blk: {
+    var values: [sample_count]f32 = undefined;
+    for (0..sample_count) |i| {
+        values[i] = cieXBar(wavelengthNm(i));
+    }
+    break :blk values;
+};
+
+const cie_y_bar_values = blk: {
+    var values: [sample_count]f32 = undefined;
+    for (0..sample_count) |i| {
+        values[i] = cieYBar(wavelengthNm(i));
+    }
+    break :blk values;
+};
+
+const cie_z_bar_values = blk: {
+    var values: [sample_count]f32 = undefined;
+    for (0..sample_count) |i| {
+        values[i] = cieZBar(wavelengthNm(i));
+    }
+    break :blk values;
+};
+
+const precomputed_basis_spectra = blk: {
+    @setEvalBranchQuota(5000);
+    const kinds = [_]PrimaryBasis{ .white, .cyan, .magenta, .yellow, .red, .green, .blue };
+    var table: [kinds.len]Spectrum = undefined;
+    for (kinds, 0..) |kind, i| {
+        var out = Spectrum.zero();
+        for (0..sample_count) |j| {
+            out.samples[j] = basisReflectance(kind, wavelengthNm(j));
+        }
+        table[i] = out;
+    }
+    break :blk table;
+};
+
 pub fn wavelengthNm(index: usize) f32 {
     return lambda_min_nm + lambda_step_nm * @as(f32, @floatFromInt(index));
 }
@@ -164,10 +202,9 @@ pub fn spectrumToConeResponses(spectrum: Spectrum) ConeResponses {
 pub fn spectrumToXyz(spectrum: Spectrum) Xyz {
     var accum = Xyz{ .x = 0.0, .y = 0.0, .z = 0.0 };
     for (spectrum.samples, 0..) |sample, index| {
-        const lambda = wavelengthNm(index);
-        accum.x += sample * cieXBar(lambda);
-        accum.y += sample * cieYBar(lambda);
-        accum.z += sample * cieZBar(lambda);
+        accum.x += sample * cie_x_bar_values[index];
+        accum.y += sample * cie_y_bar_values[index];
+        accum.z += sample * cie_z_bar_values[index];
     }
 
     const scale = lambda_step_nm / reference_white_xyz.y;
@@ -267,11 +304,7 @@ fn reflectanceFromLinearRgb(rgb: color.LinearRgb) Spectrum {
 }
 
 fn basisSpectrum(kind: PrimaryBasis) Spectrum {
-    var out = Spectrum.zero();
-    for (0..sample_count) |index| {
-        out.samples[index] = basisReflectance(kind, wavelengthNm(index));
-    }
-    return out;
+    return precomputed_basis_spectra[@intFromEnum(kind)];
 }
 
 fn basisReflectance(kind: PrimaryBasis, lambda_nm: f32) f32 {

@@ -146,7 +146,8 @@ export async function previewImage({ imagePath, binaryPath } = {}) {
   const resolvedBinary = await resolveBinaryPath(binaryPath);
   const request = {
     command: 'preview',
-    imagePath: path.resolve(imagePath)
+    imagePath: path.resolve(imagePath),
+    spectralMode: 'approximate'
   };
 
   const result = await spawnCommand(

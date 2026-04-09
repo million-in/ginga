@@ -4,6 +4,20 @@ All notable changes to `ginga` will be documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning.
 
+## [0.2.0] - 2026-04-05
+
+### Fixed
+
+- PNG inspect no longer reads the entire file into memory; only the 33-byte IHDR header is read from disk.
+- Replaced per-row `memset` in horizontal resampling with a generation counter, eliminating O(width × height) redundant cache invalidation.
+- Replaced `anyerror` type aliases in PNG, JPEG, SPD, and codec modules with Zig inferred error sets for compile-time error path optimization.
+- Precomputed CIE 1931 matching functions and basis reflectance spectra at comptime, removing ~200 redundant `exp()` and `smoothStep` calls per pixel in the spectral pipeline.
+- Gallery navigation now debounces render calls (120 ms) so rapid swiping or arrow-key holds no longer spawn a child process per frame.
+- Stale preview renders are discarded via a generation counter, preventing out-of-order UI updates when navigating quickly.
+- Batch convert now runs up to 4 conversions concurrently instead of processing files one at a time.
+- Removed duplicate O(n) batch format validation that ran identically at selection time and again at convert time.
+- Preview base64 payload is now released from the response object after extraction, reducing transient memory pressure during gallery browsing.
+
 ## [0.1.0] - 2026-03-28
 
 ### Added

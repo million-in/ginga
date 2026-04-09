@@ -117,7 +117,7 @@ The current preview renderer is a two-stage engine path:
 - XYZ to linear RGB reprojection
 - white-balance correction and chromaticity extraction
 
-The desktop preview path now defaults to the non-spectral raster mode for latency and color stability. The spectral request modes still run entirely inside the Zig engine when explicitly requested.
+The desktop preview bridge now defaults to the spectral approximation path for raster inputs. The raw CLI contract still defaults to `spectralMode: "none"` if the field is omitted, and direct `.spd` inputs still render through the native spectral path inside the Zig engine.
 
 This is a real engine-owned spectral stage. Conventional PNG and JPEG files still enter as RGB rasters, while `.spd` files enter and leave as direct sampled spectra.
 

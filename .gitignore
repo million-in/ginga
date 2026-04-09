@@ -26,6 +26,17 @@ progress.md
 maintainer_reviews/
 maintainer-reviews/
 
+# Images and binary media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.ico
+*.spd
+
 # Logs and editor junk
 *.log
 *.tmp

@@ -168,7 +168,7 @@ fn precomputeAxisTaps(
         }
 
         if (count == 0 or weight_sum <= 0.0) {
-            taps[base] = .{ .index = 0, .weight = 0.0 };
+            taps[base] = .{ .index = 1, .weight = 0.0 };
             taps[base + 1] = .{
                 .index = clampIndex(@as(isize, @intFromFloat(std.math.round(src))), source_len),
                 .weight = 1.0,
@@ -220,12 +220,14 @@ fn horizontalResample(
     const row_cache = try allocator.alloc(panel.RgbF32, source_width);
     defer allocator.free(row_cache);
 
-    const row_valid = try allocator.alloc(bool, source_width);
-    defer allocator.free(row_valid);
+    const cache_gen = try allocator.alloc(usize, source_width);
+    defer allocator.free(cache_gen);
+    @memset(cache_gen, 0);
 
+    var row_generation: usize = 0;
     var y: usize = 0;
     while (y < source_height) : (y += 1) {
-        @memset(row_valid, false);
+        row_generation +%= 1;
 
         var out_x: usize = 0;
         while (out_x < output_width) : (out_x += 1) {
@@ -235,9 +237,9 @@ fn horizontalResample(
             var tap_index: usize = 0;
             while (tap_index < kernel.count) : (tap_index += 1) {
                 const tap = x_taps[kernel.offset + tap_index];
-                if (!row_valid[tap.index]) {
+                if (cache_gen[tap.index] != row_generation) {
                     row_cache[tap.index] = sourcePixel(source, tap.index, y, spectral_pipeline);
-                    row_valid[tap.index] = true;
+                    cache_gen[tap.index] = row_generation;
                 }
                 const sample = row_cache[tap.index];
                 accum = accum.add(sample.scale(tap.weight));
@@ -636,4 +638,23 @@ test "native spectral render path accepts spectral raster storage" {
 
     try std.testing.expect(preview.pixels[0].r >= preview.pixels[0].g);
     try std.testing.expect(preview.pixels[0].r >= preview.pixels[0].b);
+}
+
+test "precomputeAxisTaps fallback keeps one nearest-neighbor tap when all weights vanish" {
+    const allocator = std.testing.allocator;
+
+    const taps = try precomputeAxisTaps(allocator, 3, 2, .{ .radius = 0 });
+    defer allocator.free(taps);
+
+    const tap_stride = axisTapStride(0.0);
+
+    const first_kernel = axisKernelAt(taps, 0, tap_stride);
+    try std.testing.expectEqual(@as(usize, 1), first_kernel.count);
+    try std.testing.expectEqual(@as(usize, 0), taps[first_kernel.offset].index);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), taps[first_kernel.offset].weight, 1.0e-6);
+
+    const second_kernel = axisKernelAt(taps, 1, tap_stride);
+    try std.testing.expectEqual(@as(usize, 1), second_kernel.count);
+    try std.testing.expectEqual(@as(usize, 2), taps[second_kernel.offset].index);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), taps[second_kernel.offset].weight, 1.0e-6);
 }

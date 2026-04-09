@@ -11,7 +11,6 @@ const header_size_bytes: u16 = 40;
 const sample_encoding_f32le: u16 = 1;
 const supported_flags: u32 = 0;
 
-pub const SpdError = anyerror;
 
 pub const Metadata = struct {
     width: usize,
@@ -27,11 +26,11 @@ const ParsedHeader = struct {
     payload_crc32: u32,
 };
 
-pub fn inspect(bytes: []const u8) SpdError!Metadata {
+pub fn inspect(bytes: []const u8) !Metadata {
     return (try parseHeader(bytes)).metadata;
 }
 
-pub fn encodeSpectralRaster(allocator: std.mem.Allocator, image: spectral_raster.SpectralRaster) SpdError![]u8 {
+pub fn encodeSpectralRaster(allocator: std.mem.Allocator, image: spectral_raster.SpectralRaster) ![]u8 {
     const metadata = Metadata{
         .width = image.width(),
         .height = image.height(),
@@ -42,7 +41,7 @@ pub fn encodeSpectralRaster(allocator: std.mem.Allocator, image: spectral_raster
     return encodeNativeGrid(allocator, metadata, image.spectra);
 }
 
-pub fn encodeRasterApprox(allocator: std.mem.Allocator, image: raster.Raster) SpdError![]u8 {
+pub fn encodeRasterApprox(allocator: std.mem.Allocator, image: raster.Raster) ![]u8 {
     const metadata = Metadata{
         .width = image.width(),
         .height = image.height(),
@@ -62,7 +61,7 @@ pub fn encodeRasterApprox(allocator: std.mem.Allocator, image: raster.Raster) Sp
     return encodeNativeGrid(allocator, metadata, spectra);
 }
 
-pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) SpdError!spectral_raster.SpectralRaster {
+pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !spectral_raster.SpectralRaster {
     const header = try parseHeader(bytes);
     const payload = bytes[header.payload_offset..];
 
@@ -100,7 +99,7 @@ fn encodeNativeGrid(
     allocator: std.mem.Allocator,
     metadata: Metadata,
     spectra: []const spectral.Spectrum,
-) SpdError![]u8 {
+) ![]u8 {
     const pixel_count = try std.math.mul(usize, metadata.width, metadata.height);
     if (spectra.len != pixel_count) return error.InvalidDimensions;
 
@@ -134,7 +133,7 @@ fn encodeNativeGrid(
     return bytes;
 }
 
-fn parseHeader(bytes: []const u8) SpdError!ParsedHeader {
+fn parseHeader(bytes: []const u8) !ParsedHeader {
     if (bytes.len < header_size_bytes) return error.InvalidSpdHeader;
     if (!std.mem.eql(u8, bytes[0..signature.len], signature)) return error.InvalidSpdSignature;
 
@@ -182,7 +181,7 @@ fn parseHeader(bytes: []const u8) SpdError!ParsedHeader {
     };
 }
 
-fn readPayloadSample(payload: []const u8, offset: *usize) SpdError!f32 {
+fn readPayloadSample(payload: []const u8, offset: *usize) !f32 {
     const next_offset = std.math.add(usize, offset.*, @sizeOf(f32)) catch return error.InvalidSpdPayload;
     if (next_offset > payload.len) return error.InvalidSpdPayload;
 
