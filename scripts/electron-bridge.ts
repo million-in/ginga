@@ -4,10 +4,74 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(moduleDir, '..');
+import type {
+  ConvertEngineResponse,
+  InspectEngineResponse,
+  PreviewEnginePayload,
+  PreviewEngineRequest,
+  PreviewEngineResponse
+} from '../electron/shared';
 
-function pathCandidatesFromPathEnv() {
+type BridgeExecutionResult = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+};
+
+type StructuredErrorPayload = {
+  ok: false;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+};
+
+type PreviewImageOptions = {
+  imagePath?: string;
+  binaryPath?: string;
+};
+
+type InspectImageOptions = {
+  imagePath?: string;
+  binaryPath?: string;
+};
+
+type ConvertImageOptions = {
+  inputPath?: string;
+  outputPath?: string;
+  quality?: number;
+  binaryPath?: string;
+};
+
+type BridgeError = Error & {
+  code: string;
+  details: unknown;
+  stdout: string;
+  stderr: string;
+  binaryPath: string;
+};
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+function resolveRepoRoot(fromDir: string): string {
+  if (path.basename(fromDir) === 'scripts') {
+    return path.resolve(fromDir, '..');
+  }
+
+  if (
+    path.basename(fromDir) === 'dist' &&
+    path.basename(path.dirname(fromDir)) === 'electron'
+  ) {
+    return path.resolve(fromDir, '..', '..');
+  }
+
+  return process.cwd();
+}
+
+const repoRoot = resolveRepoRoot(moduleDir);
+
+function pathCandidatesFromPathEnv(): string[] {
   const rawPath = process.env.PATH ?? '';
   if (!rawPath) {
     return [];
@@ -19,11 +83,15 @@ function pathCandidatesFromPathEnv() {
     .map((entry) => path.join(entry, 'ginga'));
 }
 
-const candidateBinaryPaths = () => {
-  const candidates = [];
+export const candidateBinaryPaths = (): string[] => {
+  const candidates: string[] = [];
   if (process.env.GINGA_BIN) {
     candidates.push(process.env.GINGA_BIN);
   }
+  candidates.push(
+    path.join(repoRoot, 'zig-out', 'bin', 'ginga'),
+    path.join(repoRoot, 'ginga')
+  );
   if (process.env.HOME) {
     candidates.push(
       path.join(process.env.HOME, '.local', 'bin', 'ginga'),
@@ -33,14 +101,12 @@ const candidateBinaryPaths = () => {
   candidates.push(
     '/usr/local/bin/ginga',
     '/opt/homebrew/bin/ginga',
-    path.join(repoRoot, 'zig-out', 'bin', 'ginga'),
-    path.join(repoRoot, 'ginga'),
     ...pathCandidatesFromPathEnv()
   );
   return [...new Set(candidates)];
 };
 
-async function pathExists(candidate) {
+async function pathExists(candidate: string): Promise<boolean> {
   try {
     await access(candidate, constants.X_OK);
     return true;
@@ -49,7 +115,7 @@ async function pathExists(candidate) {
   }
 }
 
-export async function resolveBinaryPath(explicitPath = '') {
+export async function resolveBinaryPath(explicitPath = ''): Promise<string> {
   if (explicitPath) {
     const resolved = path.resolve(explicitPath);
     if (await pathExists(resolved)) {
@@ -69,7 +135,11 @@ export async function resolveBinaryPath(explicitPath = '') {
   );
 }
 
-function spawnCommand(binaryPath, args, input) {
+function spawnCommand(
+  binaryPath: string,
+  args: string[],
+  input?: string
+): Promise<BridgeExecutionResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(binaryPath, args, {
       cwd: repoRoot,
@@ -89,11 +159,11 @@ function spawnCommand(binaryPath, args, input) {
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
-    child.stdout.on('data', (chunk) => {
+    child.stdout.on('data', (chunk: string) => {
       stdout += chunk;
     });
 
-    child.stderr.on('data', (chunk) => {
+    child.stderr.on('data', (chunk: string) => {
       stderr += chunk;
     });
 
@@ -109,27 +179,27 @@ function spawnCommand(binaryPath, args, input) {
   });
 }
 
-export function parseJsonPayload(rawOutput) {
+export function parseJsonPayload<T>(rawOutput: unknown): T {
   const trimmed = String(rawOutput ?? '').trim();
   if (!trimmed) {
     throw new Error('ginga returned an empty response');
   }
 
   try {
-    return JSON.parse(trimmed);
+    return JSON.parse(trimmed) as T;
   } catch {
     throw new Error('ginga response was not valid JSON');
   }
 }
 
-export function parseErrorPayload(rawOutput) {
+export function parseErrorPayload(rawOutput: unknown): StructuredErrorPayload | null {
   const trimmed = String(rawOutput ?? '').trim();
   if (!trimmed) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(trimmed);
+    const parsed = JSON.parse(trimmed) as StructuredErrorPayload;
     if (parsed && parsed.ok === false && parsed.error) {
       return parsed;
     }
@@ -138,13 +208,31 @@ export function parseErrorPayload(rawOutput) {
   return null;
 }
 
-export async function previewImage({ imagePath, binaryPath } = {}) {
+function toBridgeError(
+  message: string,
+  resolvedBinary: string,
+  result: BridgeExecutionResult,
+  structured: StructuredErrorPayload | null
+): BridgeError {
+  const error = new Error(message) as BridgeError;
+  error.code = structured?.error?.code ?? `EXIT_${result.code}`;
+  error.details = structured?.error ?? null;
+  error.stdout = result.stdout;
+  error.stderr = result.stderr;
+  error.binaryPath = resolvedBinary;
+  return error;
+}
+
+export async function previewImage({
+  imagePath,
+  binaryPath
+}: PreviewImageOptions = {}): Promise<PreviewEngineResponse> {
   if (!imagePath || typeof imagePath !== 'string') {
     throw new Error('imagePath must be a non-empty string');
   }
 
   const resolvedBinary = await resolveBinaryPath(binaryPath);
-  const request = {
+  const request: PreviewEngineRequest = {
     command: 'preview',
     imagePath: path.resolve(imagePath),
     spectralMode: 'approximate'
@@ -160,18 +248,10 @@ export async function previewImage({ imagePath, binaryPath } = {}) {
     const structured = parseErrorPayload(result.stderr) ?? parseErrorPayload(result.stdout);
     const message = structured?.error?.message ??
       `ginga preview exited with code ${result.code}${result.signal ? ` (${result.signal})` : ''}`;
-    const error = new Error(
-      message
-    );
-    error.code = structured?.error?.code ?? `EXIT_${result.code}`;
-    error.details = structured?.error ?? null;
-    error.stdout = result.stdout;
-    error.stderr = result.stderr;
-    error.binaryPath = resolvedBinary;
-    throw error;
+    throw toBridgeError(message, resolvedBinary, result, structured);
   }
 
-  const payload = parseJsonPayload(result.stdout);
+  const payload = parseJsonPayload<PreviewEnginePayload>(result.stdout);
   return {
     binaryPath: resolvedBinary,
     command: [resolvedBinary, 'preview'],
@@ -181,7 +261,10 @@ export async function previewImage({ imagePath, binaryPath } = {}) {
   };
 }
 
-export async function inspectImage({ imagePath, binaryPath } = {}) {
+export async function inspectImage({
+  imagePath,
+  binaryPath
+}: InspectImageOptions = {}): Promise<InspectEngineResponse> {
   if (!imagePath || typeof imagePath !== 'string') {
     throw new Error('imagePath must be a non-empty string');
   }
@@ -194,38 +277,32 @@ export async function inspectImage({ imagePath, binaryPath } = {}) {
     const structured = parseErrorPayload(result.stderr) ?? parseErrorPayload(result.stdout);
     const message = structured?.error?.message ??
       `ginga inspect exited with code ${result.code}${result.signal ? ` (${result.signal})` : ''}`;
-    const error = new Error(message);
-    error.code = structured?.error?.code ?? `EXIT_${result.code}`;
-    error.details = structured?.error ?? null;
-    error.stdout = result.stdout;
-    error.stderr = result.stderr;
-    error.binaryPath = resolvedBinary;
-    throw error;
+    throw toBridgeError(message, resolvedBinary, result, structured);
   }
 
   return {
     binaryPath: resolvedBinary,
     command: [resolvedBinary, 'inspect', resolvedImagePath],
     imagePath: resolvedImagePath,
-    payload: parseJsonPayload(result.stdout),
+    payload: parseJsonPayload<InspectEngineResponse['payload']>(result.stdout),
     stderr: result.stderr.trim()
   };
 }
 
-function encodingForConversion(sourceFormat, outputFormat) {
-  if (outputFormat === 'jpeg' || outputFormat === 'jpg') {
+function encodingForConversion(sourceFormat: string, outputFormat: string): 'lossless' | 'lossy' {
+  if (outputFormat === 'jpeg' || outputFormat === 'jpg' || outputFormat === 'webp') {
     return 'lossy';
   }
   if (outputFormat === 'spd') {
     return sourceFormat === 'spd' ? 'lossless' : 'lossy';
   }
   if (outputFormat === 'png') {
-    return sourceFormat === 'png' ? 'lossless' : 'lossy';
+    return 'lossless';
   }
   return 'lossy';
 }
 
-function ratioOrNull(sourceBytes, outputBytes) {
+function ratioOrNull(sourceBytes: number, outputBytes: number): number | null {
   if (!sourceBytes || !outputBytes) {
     return null;
   }
@@ -238,7 +315,7 @@ export async function convertImage({
   outputPath,
   quality = 90,
   binaryPath
-} = {}) {
+}: ConvertImageOptions = {}): Promise<ConvertEngineResponse> {
   if (!inputPath || typeof inputPath !== 'string') {
     throw new Error('inputPath must be a non-empty string');
   }
@@ -250,7 +327,7 @@ export async function convertImage({
   const resolvedInputPath = path.resolve(inputPath);
   const resolvedOutputPath = path.resolve(outputPath);
   const request = {
-    command: 'convert',
+    command: 'convert' as const,
     inputPath: resolvedInputPath,
     outputPath: resolvedOutputPath,
     quality
@@ -266,13 +343,7 @@ export async function convertImage({
     const structured = parseErrorPayload(result.stderr) ?? parseErrorPayload(result.stdout);
     const message = structured?.error?.message ??
       `ginga convert exited with code ${result.code}${result.signal ? ` (${result.signal})` : ''}`;
-    const error = new Error(message);
-    error.code = structured?.error?.code ?? `EXIT_${result.code}`;
-    error.details = structured?.error ?? null;
-    error.stdout = result.stdout;
-    error.stderr = result.stderr;
-    error.binaryPath = resolvedBinary;
-    throw error;
+    throw toBridgeError(message, resolvedBinary, result, structured);
   }
 
   const [source, output, sourceStat, outputStat] = await Promise.all([
@@ -308,12 +379,12 @@ export async function convertImage({
   };
 }
 
-async function runCli() {
+async function runCli(): Promise<void> {
   const [, , command, ...rest] = process.argv;
 
   if (command !== 'preview' && command !== 'inspect' && command !== 'convert') {
     process.stderr.write(
-      'Usage: bun scripts/electron-bridge.mjs <preview|inspect|convert> [--binary path] [--image path] [--output path] [--quality n]\n'
+      'Usage: bun scripts/electron-bridge.ts <preview|inspect|convert> [--binary path] [--image path] [--output path] [--quality n]\n'
     );
     process.exitCode = 1;
     return;
@@ -362,10 +433,10 @@ async function runCli() {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     if (error && typeof error === 'object') {
       if ('stdout' in error && error.stdout) {
-        process.stderr.write(`${error.stdout}\n`);
+        process.stderr.write(`${String(error.stdout)}\n`);
       }
       if ('stderr' in error && error.stderr) {
-        process.stderr.write(`${error.stderr}\n`);
+        process.stderr.write(`${String(error.stderr)}\n`);
       }
     }
     process.exitCode = 1;
@@ -373,5 +444,8 @@ async function runCli() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  await runCli();
+  runCli().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
 }

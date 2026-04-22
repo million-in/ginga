@@ -7,15 +7,17 @@
     "sourceHeight",
     "previewWidth",
     "previewHeight",
-    "previewPngBase64"
+    "previewMimeType"
   ],
   "properties": {
     "ok": { "const": true },
-    "format": { "enum": ["png", "jpeg", "spd"] },
+    "format": { "enum": ["png", "jpeg", "gif", "webp", "spd"] },
     "sourceWidth": { "type": "number" },
     "sourceHeight": { "type": "number" },
     "previewWidth": { "type": "number" },
     "previewHeight": { "type": "number" },
-    "previewPngBase64": { "type": "string" }
+    "previewMimeType": { "enum": ["image/png", "image/gif"] },
+    "animated": { "type": "boolean" },
+    "previewImageBase64": { "type": "string" }
   }
 }

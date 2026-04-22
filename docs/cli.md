@@ -45,6 +45,8 @@ Inspect a file:
 
 ```bash
 ginga inspect /absolute/path/to/input.png
+ginga inspect /absolute/path/to/input.gif
+ginga inspect /absolute/path/to/input.webp
 ginga inspect /absolute/path/to/input.spd
 ```
 
@@ -52,9 +54,17 @@ Convert files:
 
 ```bash
 ginga convert /absolute/path/to/input.png /tmp/output.jpg --quality 90
+ginga convert /absolute/path/to/input.png /tmp/output.webp --quality 80
+ginga convert /absolute/path/to/input.webp /tmp/output.png
 ginga convert /absolute/path/to/input.png /tmp/output.spd
 ginga convert /absolute/path/to/input.spd /tmp/output.png
 ```
+
+Notes:
+
+- GIF conversion is intentionally disabled; GIF is supported for `inspect` and animated `preview`
+- animated GIF previews return `previewMimeType: "image/gif"` and `animated: true`
+- other preview paths return `previewMimeType: "image/png"`
 
 Render preview through the engine:
 

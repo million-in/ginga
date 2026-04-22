@@ -10,6 +10,7 @@ dist/
 
 # Temporary files and generated workdirs
 .tmp/
+.temp/
 tmp/
 .artifacts/
 .benchmarks/

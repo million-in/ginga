@@ -12,7 +12,7 @@
 That gives the project a few distinctive properties:
 
 - A single engine boundary for both CLI and desktop usage.
-- Native support for an external spectral raster format, `.spd`, alongside `png`, `jpg`, and `jpeg`.
+- Native support for an external spectral raster format, `.spd`, alongside `png`, `jpg`, `jpeg`, `gif`, and `webp`.
 - A desktop preview path that now defaults to spectral reconstruction, while the raw CLI preview contract can still request `none`, `approximate`, or `native`.
 - Machine-readable CLI responses that are usable from scripts, tests, and the desktop shell.
 - A build flow that installs `ginga` as a normal shell command instead of trapping usage inside the repo directory.
@@ -21,6 +21,8 @@ The current release is strongest where the project already owns the full path en
 
 - PNG decode and encode
 - baseline JPEG/JPG decode and encode
+- GIF inspect, decode, and animated preview (LZW, palette compositing, interlacing, transparency, disposal handling)
+- WebP lossy decode and encode (VP8 boolean arithmetic coding, 4x4 DCT, spatial prediction, B_PRED sub-block prediction)
 - `.spd` ingest and export
 - preview rendering
 - folder-based desktop browsing and batch conversion
@@ -28,6 +30,7 @@ The current release is strongest where the project already owns the full path en
 The current limits are deliberate rather than hidden:
 
 - JPEG support is still baseline sequential, not full-format JPEG coverage.
+- GIF conversion is intentionally disabled; GIF is treated as an input/preview format rather than a conversion target.
 - PNG output currently prioritizes correctness and ownership over compression ratio.
 - Spectral-native external ingest exists through `.spd`; conventional PNG and JPEG inputs remain raster-first.
 
@@ -84,11 +87,11 @@ printf '{"command":"preview","imagePath":"/absolute/path/to/input.png"}\n' | gin
 The main public interfaces are intentionally small:
 
 - `ginga inspect <file>`
-  Returns machine-readable metadata for `png`, `jpg`, `jpeg`, and `.spd`.
+  Returns machine-readable metadata for `png`, `jpg`, `jpeg`, `gif`, `webp`, and `.spd`.
 - `ginga convert <input> <output>`
-  Converts across the supported formats, including raster-to-spectral `.spd`.
+  Converts across the supported raster and spectral formats, excluding GIF.
 - `ginga preview`
-  Accepts a JSON request on stdin and returns a JSON payload with preview metadata and PNG bytes encoded as base64.
+  Accepts a JSON request on stdin and returns a JSON payload with preview metadata plus preview bytes encoded as base64. Static previews are returned as PNG; animated GIF previews are returned as GIF.
 - `ginga capabilities`
   Exposes a machine-readable feature manifest so tooling can detect supported formats and render modes at runtime.
 
