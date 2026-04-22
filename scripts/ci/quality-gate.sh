@@ -176,7 +176,7 @@ bash -lc 'sleep 0.1; cat "$1" | "$0" preview >/dev/null' "$GINGA_BIN" "$request_
 missing_bin_failed=false
 if (
     cd "$ROOT"
-    bun scripts/electron-bridge.mjs preview --binary "$ROOT/missing/ginga" --image "$png_path"
+    bun scripts/electron-bridge.ts preview --binary "$ROOT/missing/ginga" --image "$png_path"
 ) >/dev/null 2>"$workdir/missing-bin.log"; then
     echo "missing dependency probe unexpectedly succeeded" >&2
     exit 1

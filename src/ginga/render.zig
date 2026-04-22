@@ -48,6 +48,10 @@ pub fn renderPreview(allocator: std.mem.Allocator, source: anytype, options: Ren
     const source_height = raster.height();
     if (source_width == 0 or source_height == 0) return error.InvalidDimensions;
 
+    if (source_width == options.output_width and source_height == options.output_height) {
+        return renderIdentityPreview(allocator, raster, options);
+    }
+
     const total_pixels = options.output_width * options.output_height;
     const reconstructed = try allocator.alloc(panel.RgbF32, total_pixels);
     defer allocator.free(reconstructed);
@@ -83,6 +87,70 @@ pub fn renderPreview(allocator: std.mem.Allocator, source: anytype, options: Ren
         .height = options.output_height,
         .pixels = output,
     };
+}
+
+fn renderIdentityPreview(
+    allocator: std.mem.Allocator,
+    source: anytype,
+    options: RenderOptions,
+) RenderError!PreviewImage {
+    const total_pixels = options.output_width * options.output_height;
+    const output = try allocator.alloc(panel.Rgb8, total_pixels);
+    errdefer allocator.free(output);
+
+    if (options.apply_panel_spread and options.panel.blurRadius() > 0) {
+        const reconstructed = try allocator.alloc(panel.RgbF32, total_pixels);
+        defer allocator.free(reconstructed);
+
+        fillIdentityBuffer(reconstructed, source, options.output_width, options.output_height, options.spectral_pipeline);
+
+        const blurred = try allocator.alloc(panel.RgbF32, total_pixels);
+        defer allocator.free(blurred);
+
+        blurHorizontal(blurred, reconstructed, options.output_width, options.output_height, options.panel);
+        blurVertical(output, blurred, options.output_width, options.output_height, options.panel);
+    } else {
+        fillIdentityPreview(output, source, options.output_width, options.output_height, options.spectral_pipeline);
+    }
+
+    return .{
+        .allocator = allocator,
+        .width = options.output_width,
+        .height = options.output_height,
+        .pixels = output,
+    };
+}
+
+fn fillIdentityBuffer(
+    output: []panel.RgbF32,
+    source: anytype,
+    width: usize,
+    height: usize,
+    spectral_pipeline: SpectralPipelineMode,
+) void {
+    var y: usize = 0;
+    while (y < height) : (y += 1) {
+        var x: usize = 0;
+        while (x < width) : (x += 1) {
+            output[y * width + x] = sourcePixel(source, x, y, spectral_pipeline);
+        }
+    }
+}
+
+fn fillIdentityPreview(
+    output: []panel.Rgb8,
+    source: anytype,
+    width: usize,
+    height: usize,
+    spectral_pipeline: SpectralPipelineMode,
+) void {
+    var y: usize = 0;
+    while (y < height) : (y += 1) {
+        var x: usize = 0;
+        while (x < width) : (x += 1) {
+            output[y * width + x] = sourcePixel(source, x, y, spectral_pipeline).clamp01().toRgb8();
+        }
+    }
 }
 
 fn reconstructRaster(

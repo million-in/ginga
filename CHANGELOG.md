@@ -4,6 +4,23 @@ All notable changes to `ginga` will be documented in this file.
 
 The format follows Keep a Changelog and the project uses semantic versioning.
 
+## [0.3.0] - 2026-04-06
+
+### Added
+
+- Pure Zig GIF decode and animated preview pipeline with LZW compression, palette compositing, interlacing, transparency, and disposal support.
+- Pure Zig WebP decode and encode pipeline with VP8 lossy codec (boolean arithmetic coding, 4x4 integer DCT/IDCT, Walsh-Hadamard Transform, spatial prediction, YUV 4:2:0) and VP8L lossless decode support.
+- GIF and WebP integrated into codec layer, CLI, capabilities, Electron desktop shell, and bridge.
+- End-to-end round-trip conversion tests for both GIF and WebP through the codec pipeline.
+
+### Changed
+
+- GIF is no longer exposed as a conversion target. The engine now treats GIF as an inspect-and-preview input format, and animated GIF preview is returned as an actual animated GIF payload to the desktop shell.
+
+### Fixed
+
+- WebP VP8 keyframe decoding now uses the correct Y-mode root branch, real B_PRED sub-block mode decoding, and real 4x4 intra prediction instead of the previous fixed-bit/fallback implementation that corrupted many lossy WebP images.
+
 ## [0.2.0] - 2026-04-05
 
 ### Fixed

@@ -2,12 +2,16 @@ const std = @import("std");
 const raster = @import("raster.zig");
 const png = @import("png.zig");
 const jpeg = @import("jpeg.zig");
+const gif = @import("gif.zig");
+const webp = @import("webp.zig");
 const spd = @import("spd.zig");
 const spectral_raster = @import("spectral_raster.zig");
 
 pub const ImageFormat = enum {
     png,
     jpeg,
+    gif,
+    webp,
     spd,
 };
 
@@ -51,6 +55,8 @@ pub const Inspection = union(ImageFormat) {
         height: usize,
     },
     jpeg: jpeg.Metadata,
+    gif: gif.Metadata,
+    webp: webp.Metadata,
     spd: spd.Metadata,
 };
 
@@ -60,6 +66,8 @@ pub fn inferFormat(path: []const u8) !ImageFormat {
     if (std.ascii.eqlIgnoreCase(extension, ".png")) return .png;
     if (std.ascii.eqlIgnoreCase(extension, ".jpg")) return .jpeg;
     if (std.ascii.eqlIgnoreCase(extension, ".jpeg")) return .jpeg;
+    if (std.ascii.eqlIgnoreCase(extension, ".gif")) return .gif;
+    if (std.ascii.eqlIgnoreCase(extension, ".webp")) return .webp;
     if (std.ascii.eqlIgnoreCase(extension, ".spd")) return .spd;
     return error.UnknownFormat;
 }
@@ -72,6 +80,8 @@ pub fn decodeFile(allocator: std.mem.Allocator, path: []const u8) !DecodedImage 
     const storage = switch (format) {
         .png => DecodedStorage{ .raster = try png.decode(allocator, bytes) },
         .jpeg => DecodedStorage{ .raster = try jpeg.decode(allocator, bytes) },
+        .gif => DecodedStorage{ .raster = try gif.decode(allocator, bytes) },
+        .webp => DecodedStorage{ .raster = try webp.decode(allocator, bytes) },
         .spd => DecodedStorage{ .spectral = try spd.decode(allocator, bytes) },
     };
     return .{
@@ -92,12 +102,24 @@ pub fn inspectFile(allocator: std.mem.Allocator, path: []const u8) !Inspection {
         return .{ .png = .{ .width = header.width, .height = header.height } };
     }
 
+    if (format == .gif or format == .webp) {
+        const bytes = try std.fs.cwd().readFileAlloc(allocator, path, max_image_bytes);
+        defer allocator.free(bytes);
+        return switch (format) {
+            .gif => .{ .gif = try gif.inspect(bytes) },
+            .webp => .{ .webp = try webp.inspect(bytes) },
+            else => unreachable,
+        };
+    }
+
     const bytes = try std.fs.cwd().readFileAlloc(allocator, path, max_image_bytes);
     defer allocator.free(bytes);
 
     return switch (format) {
         .png => unreachable,
         .jpeg => .{ .jpeg = try jpeg.inspect(bytes) },
+        .gif => .{ .gif = try gif.inspect(bytes) },
+        .webp => .{ .webp = try webp.inspect(bytes) },
         .spd => .{ .spd = try spd.inspect(bytes) },
     };
 }
@@ -111,6 +133,8 @@ pub fn encodeOwned(
     return switch (format) {
         .png => try png.encode(allocator, image),
         .jpeg => try jpeg.encode(allocator, image, quality),
+        .gif => error.Unsupported,
+        .webp => try webp.encode(allocator, image, quality),
         .spd => try spd.encodeRasterApprox(allocator, image),
     };
 }
@@ -121,10 +145,14 @@ pub fn convertPath(
     output_path: []const u8,
     quality: u8,
 ) !void {
+    const input_format = try inferFormat(input_path);
+    const output_format = try inferFormat(output_path);
+    if (input_format == .gif or output_format == .gif) {
+        return error.Unsupported;
+    }
+
     var decoded = try decodeFile(allocator, input_path);
     defer decoded.deinit();
-
-    const output_format = try inferFormat(output_path);
     if (output_format == .spd) {
         const encoded_spd = switch (decoded.storage) {
             .raster => |image| try spd.encodeRasterApprox(allocator, image),
@@ -155,8 +183,16 @@ test "inferFormat accepts supported extensions and rejects unknown ones" {
     try std.testing.expectEqual(ImageFormat.png, try inferFormat("image.png"));
     try std.testing.expectEqual(ImageFormat.jpeg, try inferFormat("image.JPG"));
     try std.testing.expectEqual(ImageFormat.jpeg, try inferFormat("image.JPEG"));
+    try std.testing.expectEqual(ImageFormat.gif, try inferFormat("image.gif"));
+    try std.testing.expectEqual(ImageFormat.webp, try inferFormat("image.webp"));
     try std.testing.expectEqual(ImageFormat.spd, try inferFormat("image.spd"));
     try std.testing.expectError(error.UnknownFormat, inferFormat("image.bmp"));
+}
+
+test "convertPath rejects gif conversions" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.Unsupported, convertPath(allocator, "input.gif", "output.png", 90));
+    try std.testing.expectError(error.Unsupported, convertPath(allocator, "input.png", "output.gif", 90));
 }
 
 test "convertPath round trips through jpeg and back to png" {
@@ -226,6 +262,48 @@ test "convertPath round trips through spd and back to png" {
     try std.testing.expectEqual(ImageFormat.png, std.meta.activeTag(png_info));
     try std.testing.expectEqual(@as(usize, 2), png_info.png.width);
     try std.testing.expectEqual(@as(usize, 1), png_info.png.height);
+}
+
+test "convertPath round trips through webp and back to png" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var image = try raster.Raster.init(allocator, 16, 16);
+    defer image.deinit();
+    var y: usize = 0;
+    while (y < 16) : (y += 1) {
+        var x: usize = 0;
+        while (x < 16) : (x += 1) {
+            image.setPixel(x, y, .{
+                .r = @truncate(x * 16),
+                .g = @truncate(y * 16),
+                .b = 128,
+                .a = 255,
+            });
+        }
+    }
+
+    const source_png = try png.encode(allocator, image);
+    defer allocator.free(source_png);
+    try tmp.dir.writeFile(.{ .sub_path = "input.png", .data = source_png });
+
+    const input_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/input.png", .{tmp.sub_path});
+    defer allocator.free(input_path);
+    const output_webp_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/output.webp", .{tmp.sub_path});
+    defer allocator.free(output_webp_path);
+    const output_png_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/roundtrip.png", .{tmp.sub_path});
+    defer allocator.free(output_png_path);
+
+    try convertPath(allocator, input_path, output_webp_path, 90);
+    try convertPath(allocator, output_webp_path, output_png_path, 90);
+
+    const webp_info = try inspectFile(allocator, output_webp_path);
+    try std.testing.expectEqual(ImageFormat.webp, std.meta.activeTag(webp_info));
+    const png_info = try inspectFile(allocator, output_png_path);
+    try std.testing.expectEqual(ImageFormat.png, std.meta.activeTag(png_info));
+    try std.testing.expectEqual(@as(usize, 16), png_info.png.width);
+    try std.testing.expectEqual(@as(usize, 16), png_info.png.height);
 }
 
 test "inspectFile reports missing files" {

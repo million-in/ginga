@@ -19,7 +19,7 @@ export interface OpenDirectoryDialogResult {
   directoryPath: string;
 }
 
-export type OutputFormat = 'png' | 'jpg' | 'jpeg' | 'spd';
+export type OutputFormat = 'png' | 'jpg' | 'jpeg' | 'webp' | 'spd';
 
 export interface SaveImageDialogOptions {
   defaultPath?: string;
@@ -51,7 +51,9 @@ export interface PreviewEnginePayload {
   sourceHeight?: number;
   previewWidth?: number;
   previewHeight?: number;
-  previewPngBase64?: string;
+  previewMimeType?: string;
+  animated?: boolean;
+  previewImageBase64?: string;
 }
 
 export interface PreviewEngineResponse {
@@ -99,7 +101,25 @@ export interface SpdInspectPayload {
   lambdaStepNm: number;
 }
 
-export type InspectEnginePayload = PngInspectPayload | JpegInspectPayload | SpdInspectPayload;
+export interface GifInspectPayload {
+  ok: true;
+  format: 'gif';
+  width: number;
+  height: number;
+  frameCount: number;
+  hasTransparency: boolean;
+}
+
+export interface WebpInspectPayload {
+  ok: true;
+  format: 'webp';
+  width: number;
+  height: number;
+  isLossy: boolean;
+  hasAlpha: boolean;
+}
+
+export type InspectEnginePayload = PngInspectPayload | JpegInspectPayload | GifInspectPayload | WebpInspectPayload | SpdInspectPayload;
 
 export interface InspectEngineResponse {
   binaryPath: string;

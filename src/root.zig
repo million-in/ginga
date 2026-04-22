@@ -11,9 +11,11 @@ pub const dct = @import("ginga/dct.zig");
 pub const bits = @import("ginga/bits.zig");
 pub const png = @import("ginga/png.zig");
 pub const jpeg = @import("ginga/jpeg.zig");
+pub const gif = @import("ginga/gif.zig");
 pub const spd = @import("ginga/spd.zig");
 pub const spectral = @import("ginga/spectral.zig");
 pub const spectral_raster = @import("ginga/spectral_raster.zig");
+pub const webp = @import("ginga/webp.zig");
 pub const codec = @import("ginga/codec.zig");
 pub const cli = @import("ginga/cli.zig");
 

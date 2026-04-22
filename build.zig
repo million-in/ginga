@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    const desktop_cmd = b.addSystemCommand(&.{ "bun", "scripts/desktop-check.mjs", "build" });
+    const desktop_cmd = b.addSystemCommand(&.{ "bun", "scripts/desktop-check.ts", "build" });
     desktop_cmd.step.dependOn(b.getInstallStep());
 
     const install_global_cmd = b.addSystemCommand(&.{ "bash", "scripts/install-global.sh", "zig-out/bin/ginga" });

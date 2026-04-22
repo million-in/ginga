@@ -1,18 +1,20 @@
 import { mkdir, readFile, rm } from 'node:fs/promises';
-import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { candidateBinaryPaths } from './electron-bridge';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, '..');
 const desktopOutDir = path.join(repoRoot, 'electron', 'dist');
 
-async function readText(relativePath) {
+async function readText(relativePath: string): Promise<string> {
   const absolutePath = path.join(repoRoot, relativePath);
   return readFile(absolutePath, 'utf8');
 }
 
-async function buildDesktop(outDir) {
+async function buildDesktop(outDir: string): Promise<void> {
   await rm(outDir, { force: true, recursive: true });
   await mkdir(outDir, { recursive: true });
 
@@ -51,13 +53,13 @@ async function buildDesktop(outDir) {
   }
 }
 
-async function validateBootstrap(outDir) {
+async function validateBootstrap(outDir: string): Promise<void> {
   const [packageJson, indexHtml] = await Promise.all([
     readText('package.json'),
     readText('electron/index.html')
   ]);
 
-  const parsed = JSON.parse(packageJson);
+  const parsed = JSON.parse(packageJson) as { main?: string };
   if (parsed.main !== 'electron/dist/main.js') {
     throw new Error('package.json main must point to electron/dist/main.js');
   }
@@ -72,24 +74,39 @@ async function validateBootstrap(outDir) {
     throw new Error('Electron main/preload bundles must be emitted as Node/CommonJS, not Bun ESM');
   }
 
-  if (distMain.includes('node_modules/electron/index.js') || distPreload.includes('node_modules/electron/index.js')) {
+  if (
+    distMain.includes('node_modules/electron/index.js') ||
+    distPreload.includes('node_modules/electron/index.js')
+  ) {
     throw new Error('Electron main/preload bundles must externalize the electron runtime module');
   }
 }
 
-async function main() {
+async function main(): Promise<void> {
   const mode = process.argv[2] ?? 'check';
   const outDir = mode === 'build' ? desktopOutDir : path.join(os.tmpdir(), 'ginga-desktop-check');
 
   await buildDesktop(outDir);
   await validateBootstrap(outDir);
 
-  const bridgeUrl = pathToFileURL(
-    path.join(repoRoot, 'scripts', 'electron-bridge.mjs')
-  ).href;
-  await import(bridgeUrl);
+  const candidates = candidateBinaryPaths();
+  const repoBinary = path.join(repoRoot, 'zig-out', 'bin', 'ginga');
+  const globalHomebrewBinary = '/opt/homebrew/bin/ginga';
+
+  if (candidates.indexOf(repoBinary) === -1) {
+    throw new Error('electron bridge must include the repo-local zig-out/bin/ginga candidate');
+  }
+  if (
+    candidates.indexOf(globalHomebrewBinary) !== -1 &&
+    candidates.indexOf(repoBinary) > candidates.indexOf(globalHomebrewBinary)
+  ) {
+    throw new Error('electron bridge must prefer the repo-local binary before the global Homebrew install');
+  }
 
   process.stdout.write(`desktop sources OK (${mode})\n`);
 }
 
-await main();
+main().catch((error: unknown) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});

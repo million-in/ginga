@@ -10,7 +10,7 @@ import type {
   PreviewEngineResponse
 } from './shared';
 
-type SupportedInputFormat = OutputFormat;
+type SupportedInputFormat = OutputFormat | 'gif';
 
 type GalleryState = {
   directoryPath: string;
@@ -84,7 +84,7 @@ function currentOutputFormat(): OutputFormat {
 }
 
 function outputExtension(format: OutputFormat): string {
-  return format === 'png' ? '.png' : format === 'spd' ? '.spd' : format === 'jpeg' ? '.jpeg' : '.jpg';
+  return format === 'png' ? '.png' : format === 'webp' ? '.webp' : format === 'spd' ? '.spd' : format === 'jpeg' ? '.jpeg' : '.jpg';
 }
 
 function setStatus(message: string): void {
@@ -115,13 +115,14 @@ function clearPreview(message: string): void {
 }
 
 function setPreview(response: PreviewEngineResponse): void {
-  const base64 = response.payload?.previewPngBase64;
+  const base64 = response.payload?.previewImageBase64;
+  const mimeType = response.payload?.previewMimeType;
   if (!base64) {
-    clearPreview('The engine returned no preview PNG payload.');
+    clearPreview('The engine returned no preview payload.');
     return;
   }
 
-  previewImageNode.src = `data:image/png;base64,${base64}`;
+  previewImageNode.src = `data:${mimeType ?? 'image/png'};base64,${base64}`;
   previewImageNode.hidden = false;
   previewPlaceholderNode.hidden = true;
 }
@@ -134,7 +135,9 @@ function summarizePayload(payload: PreviewEnginePayload): Record<string, unknown
     sourceHeight: payload.sourceHeight,
     previewWidth: payload.previewWidth,
     previewHeight: payload.previewHeight,
-    previewPngBase64Bytes: payload.previewPngBase64 ? payload.previewPngBase64.length : 0
+    previewMimeType: payload.previewMimeType,
+    animated: payload.animated ?? false,
+    previewImageBase64Bytes: payload.previewImageBase64 ? payload.previewImageBase64.length : 0
   };
 }
 
@@ -222,6 +225,8 @@ function inferInputFormat(filePath: string): SupportedInputFormat | null {
   if (lower.endsWith('.png')) return 'png';
   if (lower.endsWith('.jpg')) return 'jpg';
   if (lower.endsWith('.jpeg')) return 'jpeg';
+  if (lower.endsWith('.gif')) return 'gif';
+  if (lower.endsWith('.webp')) return 'webp';
   if (lower.endsWith('.spd')) return 'spd';
   return null;
 }
@@ -297,7 +302,8 @@ function renderPreviewDetails(
     ['Source size', `${payload.sourceWidth ?? 0} × ${payload.sourceHeight ?? 0}`],
     ['Preview size', `${payload.previewWidth ?? 0} × ${payload.previewHeight ?? 0}`],
     ['Spectral mode', response.request.spectralMode ?? 'none'],
-    ['Preview encoding', 'png'],
+    ['Preview encoding', payload.previewMimeType ?? 'image/png'],
+    ['Animated', payload.animated ? 'true' : 'false'],
     ['Pipeline', 'Zig render engine']
   ];
 
@@ -418,7 +424,7 @@ async function renderPath(imagePath: string): Promise<void> {
   renderPreviewDetails(trimmedPath, previewOutcome.response, inspect);
   const summary = summarizeResponse(previewOutcome.response, inspect);
   if (previewOutcome.response.payload) {
-    delete (previewOutcome.response.payload as Record<string, unknown>).previewPngBase64;
+    delete (previewOutcome.response.payload as Record<string, unknown>).previewImageBase64;
   }
   setResult(summary);
   setStatus('Preview completed.');
@@ -572,6 +578,13 @@ async function convertImage(): Promise<void> {
     return;
   }
 
+  if (inferInputFormat(inputPath) === 'gif') {
+    setStatus('GIF conversion is intentionally disabled.');
+    setResult({ ok: false, error: 'GIF conversion is intentionally disabled' });
+    replaceDetails([['Mode', 'Convert'], ['Status', 'GIF conversion disabled']]);
+    return;
+  }
+
   const quality = currentOutputFormat() === 'jpg' || currentOutputFormat() === 'jpeg' ? parseQuality() : 90;
   convertButton.disabled = true;
   try {
@@ -625,6 +638,19 @@ async function chooseBatchImages(): Promise<void> {
       ['Reason', 'Batch selections must all use the same input format']
     ]);
     setResult({ ok: false, error: 'Batch selections must use the same input format' });
+    setStatus('Batch selection rejected.');
+    return;
+  }
+
+  if (inputFormat === 'gif') {
+    batchSelection = [];
+    updateBatchSummary();
+    replaceDetails([
+      ['Mode', 'Batch convert'],
+      ['Status', 'Selection rejected'],
+      ['Reason', 'GIF conversion is intentionally disabled']
+    ]);
+    setResult({ ok: false, error: 'GIF conversion is intentionally disabled' });
     setStatus('Batch selection rejected.');
     return;
   }

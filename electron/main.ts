@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage } from 'electron';
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import type {
   ConvertBridgeOutcome,
@@ -18,27 +17,14 @@ import type {
   SaveImageDialogOptions,
   SaveImageDialogResult
 } from './shared';
+import {
+  convertImage as bridgeConvertImage,
+  inspectImage as bridgeInspectImage,
+  previewImage as bridgePreviewImage
+} from '../scripts/electron-bridge';
 
-type PreviewBridgeModule = {
-  previewImage(input: {
-    imagePath: string;
-    binaryPath?: string;
-  }): Promise<PreviewEngineResponse>;
-  inspectImage(input: {
-    imagePath: string;
-    binaryPath?: string;
-  }): Promise<InspectEngineResponse>;
-  convertImage(input: {
-    inputPath: string;
-    outputPath: string;
-    quality?: number;
-    binaryPath?: string;
-  }): Promise<ConvertEngineResponse>;
-};
-
-let bridgePromise: Promise<PreviewBridgeModule> | null = null;
 let mainWindow: BrowserWindow | null = null;
-const supportedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.spd']);
+const supportedImageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.spd']);
 
 function resolveAppPaths(): {
   repoRoot: string;
@@ -57,18 +43,6 @@ function resolveAppPaths(): {
 function resolveIconPath(): string {
   const { electronRoot } = resolveAppPaths();
   return path.join(electronRoot, 'logo', 'AppIcon.svg');
-}
-
-function loadBridge(): Promise<PreviewBridgeModule> {
-  if (!bridgePromise) {
-    const { repoRoot } = resolveAppPaths();
-    const bridgeUrl = pathToFileURL(
-      path.join(repoRoot, 'scripts', 'electron-bridge.mjs')
-    ).href;
-    bridgePromise = import(bridgeUrl) as Promise<PreviewBridgeModule>;
-  }
-
-  return bridgePromise;
 }
 
 function normalizeBridgeError(error: unknown): PreviewBridgeError {
@@ -101,10 +75,8 @@ async function previewImage(
   _event: Electron.IpcMainInvokeEvent,
   imagePath: string
 ): Promise<PreviewBridgeOutcome> {
-  const bridge = await loadBridge();
-
   try {
-    const response = await bridge.previewImage({ imagePath });
+    const response = await bridgePreviewImage({ imagePath });
     return { ok: true, response };
   } catch (error) {
     return { ok: false, error: normalizeBridgeError(error) };
@@ -115,10 +87,8 @@ async function inspectImage(
   _event: Electron.IpcMainInvokeEvent,
   imagePath: string
 ): Promise<InspectBridgeOutcome> {
-  const bridge = await loadBridge();
-
   try {
-    const response = await bridge.inspectImage({ imagePath });
+    const response = await bridgeInspectImage({ imagePath });
     return { ok: true, response };
   } catch (error) {
     return { ok: false, error: normalizeBridgeError(error) };
@@ -129,10 +99,8 @@ async function convertImage(
   _event: Electron.IpcMainInvokeEvent,
   input: { inputPath: string; outputPath: string; quality: number }
 ): Promise<ConvertBridgeOutcome> {
-  const bridge = await loadBridge();
-
   try {
-    const response = await bridge.convertImage(input);
+    const response = await bridgeConvertImage(input);
     return { ok: true, response };
   } catch (error) {
     return { ok: false, error: normalizeBridgeError(error) };
@@ -144,7 +112,7 @@ async function openImageDialog(): Promise<OpenImageDialogResult> {
     properties: ['openFile'],
     title: 'Open image',
     filters: [
-      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'spd'] },
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'spd'] },
       { name: 'All files', extensions: ['*'] }
     ]
   });
@@ -186,7 +154,7 @@ async function openBatchImageDialog(): Promise<OpenBatchImageDialogResult> {
     properties: ['openFile', 'multiSelections'],
     title: 'Select images for batch convert',
     filters: [
-      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'spd'] },
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'spd'] },
       { name: 'All files', extensions: ['*'] }
     ]
   });
@@ -214,27 +182,20 @@ async function openDirectoryDialog(): Promise<OpenDirectoryDialogResult> {
   return { canceled: false, directoryPath: result.filePaths[0] };
 }
 
+function saveFilterForFormat(format: string): { name: string; extensions: string[] } {
+  switch (format) {
+    case 'png': return { name: 'PNG image', extensions: ['png'] };
+    case 'webp': return { name: 'WebP image', extensions: ['webp'] };
+    case 'spd': return { name: 'SPD spectral raster', extensions: ['spd'] };
+    default: return { name: 'JPEG image', extensions: ['jpg', 'jpeg'] };
+  }
+}
+
 async function saveImageDialog(options: SaveImageDialogOptions): Promise<SaveImageDialogResult> {
-  const extension = options.format === 'jpg' ? 'jpg' : options.format;
   const result = await dialog.showSaveDialog({
     title: 'Save converted image',
     defaultPath: options.defaultPath,
-    filters: [
-      {
-        name:
-          extension === 'png'
-            ? 'PNG image'
-            : extension === 'spd'
-              ? 'SPD spectral raster'
-              : 'JPEG image',
-        extensions:
-          extension === 'png'
-            ? ['png']
-            : extension === 'spd'
-              ? ['spd']
-              : ['jpg', 'jpeg']
-      }
-    ]
+    filters: [saveFilterForFormat(options.format)]
   });
 
   if (result.canceled || !result.filePath) {
