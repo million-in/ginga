@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-  pull_request:
+  pull_request_target:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
