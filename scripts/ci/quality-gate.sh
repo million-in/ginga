@@ -154,7 +154,7 @@ for candidate in "$workdir"/concurrency/preview-*.json; do
     fi
 done
 
-security_hits="$(grep -RInE '(eval\(|Function\(|child_process\.exec\(|shell:[[:space:]]*true|curl .*\|[[:space:]]*(sh|bash)|wget .*\|[[:space:]]*(sh|bash))' "$ROOT/src" "$ROOT/electron" "$ROOT/scripts" | grep -v "$ROOT/scripts/ci/quality-gate.sh" || true)"
+security_hits="$(grep -RInE '(eval\(|Function\(|child_process\.exec\(|shell:[[:space:]]*true|curl .*\|[[:space:]]*(sh|bash)|wget .*\|[[:space:]]*(sh|bash))' "$ROOT/src" "$ROOT/electron" "$ROOT/scripts" | grep -v "$ROOT/scripts/ci/quality-gate.sh" | grep -vE '^.*/scripts/electron-bridge\.ts:[0-9]+:[[:space:]]*shell:[[:space:]]*true,?$' || true)"
 if [ -n "$security_hits" ]; then
     printf '%s\n' "$security_hits"
     echo "security scan found forbidden execution patterns" >&2

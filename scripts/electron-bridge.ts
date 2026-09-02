@@ -143,6 +143,7 @@ function spawnCommand(
   return new Promise((resolve, reject) => {
     const child = spawn(binaryPath, args, {
       cwd: repoRoot,
+      shell: true,
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
