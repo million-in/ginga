@@ -135,10 +135,21 @@ export async function resolveBinaryPath(explicitPath = ''): Promise<string> {
   );
 }
 
-function spawnCommand(
+export const DEFAULT_TIMEOUT_MS = 10_000;
+
+export function resolveTimeoutMs(raw: string | undefined = process.env.GINGA_TIMEOUT_MS): number {
+  if (!raw) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+}
+
+export function spawnCommand(
   binaryPath: string,
   args: string[],
-  input?: string
+  input?: string,
+  timeoutMs: number = resolveTimeoutMs()
 ): Promise<BridgeExecutionResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(binaryPath, args, {
@@ -155,6 +166,35 @@ function spawnCommand(
 
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      child.kill('SIGKILL');
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      const error = new Error(`ginga timed out after ${timeoutMs}ms`) as BridgeError;
+      error.code = 'TIMEOUT';
+      error.details = null;
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.binaryPath = binaryPath;
+      reject(error);
+    }, timeoutMs);
+
+    const settle = (action: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      action();
+    };
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -167,9 +207,9 @@ function spawnCommand(
       stderr += chunk;
     });
 
-    child.on('error', reject);
+    child.on('error', (error) => settle(() => reject(error)));
     child.on('close', (code, signal) => {
-      resolve({ code, signal, stdout, stderr });
+      settle(() => resolve({ code, signal, stdout, stderr }));
     });
 
     if (input !== undefined) {

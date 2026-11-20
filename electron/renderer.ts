@@ -301,7 +301,7 @@ function renderPreviewDetails(
     ['Source format', payload.format ?? 'unknown'],
     ['Source size', `${payload.sourceWidth ?? 0} × ${payload.sourceHeight ?? 0}`],
     ['Preview size', `${payload.previewWidth ?? 0} × ${payload.previewHeight ?? 0}`],
-    ['Spectral mode', response.request.spectralMode ?? 'none'],
+    ['Spectral mode', response.request.spectralMode ?? 'approximate'],
     ['Preview encoding', payload.previewMimeType ?? 'image/png'],
     ['Animated', payload.animated ? 'true' : 'false'],
     ['Pipeline', 'Zig render engine']
@@ -416,7 +416,7 @@ async function renderPath(imagePath: string): Promise<void> {
       error: previewOutcome.error ?? { message: 'Unknown preview failure' },
       inspect
     });
-    setStatus('Preview failed.');
+    setStatus(previewOutcome.error?.code === 'TIMEOUT' ? 'Preview timed out.' : 'Preview failed.');
     return;
   }
 

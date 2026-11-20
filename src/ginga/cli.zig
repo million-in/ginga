@@ -335,7 +335,7 @@ fn scaledPreviewDimensions(width: usize, height: usize, max_edge: usize) struct 
 }
 
 fn parseSpectralMode(raw: ?[]const u8) !render.SpectralPipelineMode {
-    const value = raw orelse return .none;
+    const value = raw orelse return .approximate;
     if (std.mem.eql(u8, value, "none")) return .none;
     if (std.mem.eql(u8, value, "approximate")) return .approximate;
     if (std.mem.eql(u8, value, "native")) return .native;
@@ -346,6 +346,7 @@ fn errorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.InvalidArgument => "invalid ginga command or missing arguments",
         error.InvalidDimensions => "the image dimensions are invalid",
+        error.OutOfBounds => "the image data references pixels outside the image bounds",
         error.StreamTooLong => "the preview request exceeded the supported input size limit",
         error.InvalidSignature => "the file is not a valid PNG signature",
         error.InvalidChunk => "the PNG stream contains an invalid chunk or checksum",
@@ -389,4 +390,11 @@ fn errorMessage(err: anyerror) []const u8 {
         error.OutOfMemory => "ginga ran out of memory while processing the image",
         else => "internal engine error",
     };
+}
+
+test "preview without spectralMode defaults to the spectral path" {
+    try std.testing.expectEqual(render.SpectralPipelineMode.approximate, try parseSpectralMode(null));
+    try std.testing.expectEqual(render.SpectralPipelineMode.none, try parseSpectralMode("none"));
+    try std.testing.expectEqual(render.SpectralPipelineMode.native, try parseSpectralMode("native"));
+    try std.testing.expectError(error.InvalidArgument, parseSpectralMode("bogus"));
 }
