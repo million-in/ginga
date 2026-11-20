@@ -14,6 +14,7 @@ pub const Pixel = struct {
 
 pub const RasterError = error{
     InvalidDimensions,
+    OutOfBounds,
     Overflow,
     OutOfMemory,
 };
@@ -86,22 +87,26 @@ pub const Raster = struct {
     }
 
     pub fn getPixel(self: @This(), x: usize, y: usize) Pixel {
-        return self.pixels[self.index(x, y)];
+        // Infallible fast path for callers whose loops are bounded by width/height.
+        // Untrusted coordinates must go through index()/row() and handle OutOfBounds.
+        const idx = self.index(x, y) catch unreachable;
+        return self.pixels[idx];
     }
 
     pub fn setPixel(self: *@This(), x: usize, y: usize, value: Pixel) void {
-        self.pixels[self.index(x, y)] = value;
+        const idx = self.index(x, y) catch unreachable;
+        self.pixels[idx] = value;
     }
 
-    pub fn row(self: @This(), y: usize) []Pixel {
-        if (y >= self.height_value) @panic("raster row index out of bounds");
+    pub fn row(self: @This(), y: usize) RasterError![]Pixel {
+        if (y >= self.height_value) return error.OutOfBounds;
         const start = y * self.width_value;
         return self.pixels[start .. start + self.width_value];
     }
 
-    pub fn index(self: @This(), x: usize, y: usize) usize {
+    pub fn index(self: @This(), x: usize, y: usize) RasterError!usize {
         if (x >= self.width_value or y >= self.height_value) {
-            @panic("raster pixel index out of bounds");
+            return error.OutOfBounds;
         }
         return y * self.width_value + x;
     }
@@ -115,4 +120,16 @@ test "raster stores row-major pixels" {
     image.setPixel(1, 0, .{ .r = 12, .g = 34, .b = 56, .a = 78 });
     try std.testing.expectEqual(@as(u8, 12), image.getPixel(1, 0).r);
     try std.testing.expectEqual(@as(usize, 4), image.pixelCount());
+}
+
+test "raster row and index return OutOfBounds instead of panicking" {
+    const allocator = std.testing.allocator;
+    var image = try Raster.init(allocator, 2, 2);
+    defer image.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), try image.index(1, 1));
+    try std.testing.expectEqual(@as(usize, 2), (try image.row(1)).len);
+    try std.testing.expectError(error.OutOfBounds, image.index(2, 0));
+    try std.testing.expectError(error.OutOfBounds, image.index(0, 2));
+    try std.testing.expectError(error.OutOfBounds, image.row(2));
 }

@@ -302,7 +302,7 @@ fn unfilterInto(
             };
         }
 
-        try decodeRowInto(image.row(y), recon_row, header, palette, transparency);
+        try decodeRowInto(try image.row(y), recon_row, header, palette, transparency);
         std.mem.copyForwards(u8, prev_row, recon_row);
     }
 }
@@ -458,7 +458,7 @@ fn encodeScanlines(allocator: std.mem.Allocator, image: raster.Raster) ![]u8 {
     defer for (candidates) |candidate| allocator.free(candidate);
 
     for (0..image.height_value) |y| {
-        const row = image.row(y);
+        const row = try image.row(y);
         const raw = candidates[0];
         for (row, 0..) |pixel, x| {
             const base = x * channels;
